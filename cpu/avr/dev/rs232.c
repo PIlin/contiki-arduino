@@ -52,7 +52,6 @@
 #define ADD_CARRAGE_RETURNS_TO_SERIAL_OUTPUT 1
 #endif
 
-#if defined (__AVR_ATmega128__) || defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1281__)
 typedef struct {
   volatile uint8_t * UDR;
   volatile uint8_t * UBRRH;
@@ -63,6 +62,8 @@ typedef struct {
   int (* input_handler)(unsigned char);
 } rs232_t;
 
+#if defined (__AVR_ATmega128__) || defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1281__)
+/* Chips which have UART0 and UART1 (mapped to port 0 and 1) */
 static rs232_t rs232_ports[2] = {
   {   // UART0
     &UDR0,
@@ -84,53 +85,29 @@ static rs232_t rs232_ports[2] = {
     NULL
   }
 };
-/*---------------------------------------------------------------------------*/
-ISR(USART0_TX_vect)
-{
-  rs232_ports[RS232_PORT_0].txwait = 0;
-}
+#define USART_PORT0_TX_vect	USART0_TX_vect
+#define USART_PORT0_RX_vect	USART0_RX_vect
+#define USART_PORT1_TX_vect	USART1_TX_vect
+#define USART_PORT1_RX_vect	USART1_RX_vect
 
-/*---------------------------------------------------------------------------*/
-ISR(USART0_RX_vect)
-{
-  unsigned char c;
-
-  c = *(rs232_ports[RS232_PORT_0].UDR);
-
-  if(rs232_ports[RS232_PORT_0].input_handler != NULL) {
-    rs232_ports[RS232_PORT_0].input_handler(c);
+#elif defined (__AVR_ATmega328P__) || defined (__AVR_ATmega168__)
+/* Chips which have UART0 only (mapped to port 0) */
+static rs232_t rs232_ports[1] = {
+  {   // UART0
+    &UDR0,
+    &UBRR0H,
+    &UBRR0L,
+    &UCSR0B,
+    &UCSR0C,
+    0,
+    NULL
   }
-}
-/*---------------------------------------------------------------------------*/
-ISR(USART1_TX_vect)
-{
-  rs232_ports[RS232_PORT_1].txwait = 0;
-}
-
-/*---------------------------------------------------------------------------*/
-ISR(USART1_RX_vect)
-{
-  unsigned char c;
-
-  c = *(rs232_ports[RS232_PORT_1].UDR);
-
-  if(rs232_ports[RS232_PORT_1].input_handler != NULL) {
-    rs232_ports[RS232_PORT_1].input_handler(c);
-  }
-}
+};
+#define USART_PORT0_TX_vect	USART_TX_vect
+#define USART_PORT0_RX_vect	USART_RX_vect
 
 #elif defined (__AVR_AT90USB1287__)
-/* Has only UART1, map it to port 0 */
-typedef struct {
-  volatile uint8_t * UDR;
-  volatile uint8_t * UBRRH;
-  volatile uint8_t * UBRRL;
-  volatile uint8_t * UCSRB;
-  volatile uint8_t * UCSRC;
-  volatile uint8_t txwait;
-  int (* input_handler)(unsigned char);
-} rs232_t;
-
+/* Chips which have UART1 only (mapped to port 0) */
 static rs232_t rs232_ports[1] = {
   {  // UART1
     &UDR1,
@@ -142,14 +119,23 @@ static rs232_t rs232_ports[1] = {
     NULL
   }
 };
+#define USART_PORT0_TX_vect	USART1_TX_vect
+#define USART_PORT0_RX_vect	USART1_RX_vect
+#else
+#error Please define the UART registers for your MCU!
+#endif
+
 /*---------------------------------------------------------------------------*/
-ISR(USART1_TX_vect)
+#if defined USART_PORT0_TX_vect
+ISR(USART_PORT0_TX_vect)
 {
   rs232_ports[RS232_PORT_0].txwait = 0;
 }
+#endif
 
 /*---------------------------------------------------------------------------*/
-ISR(USART1_RX_vect)
+#if defined USART_PORT0_RX_vect
+ISR(USART_PORT0_RX_vect)
 {
   unsigned char c;
 
@@ -159,10 +145,31 @@ ISR(USART1_RX_vect)
     rs232_ports[RS232_PORT_0].input_handler(c);
   }
 }
-#else
-#error Please define the UART registers for your MCU!
 #endif
 
+/*---------------------------------------------------------------------------*/
+#if defined USART_PORT1_TX_vect
+ISR(PORT1_USART_TX_vect)
+{
+  rs232_ports[RS232_PORT_1].txwait = 0;
+}
+#endif
+
+/*---------------------------------------------------------------------------*/
+#if defined USART_PORT1_RX_vect
+ISR(PORT1_USART_RX_vect)
+{
+  unsigned char c;
+
+  c = *(rs232_ports[RS232_PORT_1].UDR);
+
+  if(rs232_ports[RS232_PORT_1].input_handler != NULL) {
+    rs232_ports[RS232_PORT_1].input_handler(c);
+  }
+}
+#endif
+
+/* == Bellow here should be chip-independent functions only ================ */
 /*---------------------------------------------------------------------------*/
 void
 rs232_init (uint8_t port, uint8_t bd, uint8_t ffmt)

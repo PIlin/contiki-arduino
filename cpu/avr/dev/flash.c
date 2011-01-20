@@ -1,6 +1,15 @@
 
 #include "dev/flash.h"
 
+#include <avr/io.h>
+#if !defined(SPMEN) && defined(SELFPRGEN)
+/*
+ * Work around for avr-libc as it expects the bit to be
+ * called SPMEN however it was named SELFPRGEN in ATmega328p
+ */
+#define SPMEN SELFPRGEN
+#endif
+
 #include <avr/boot.h>
 #include <inttypes.h>
 #include <avr/interrupt.h>

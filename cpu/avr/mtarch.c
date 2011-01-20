@@ -42,6 +42,11 @@
 #include "sys/mt.h"
 #include "dev/rs232.h"
 
+#if defined(__AVR_ATmega328P__)
+# undef SP
+# define SP _SFR_IO16(0x3D)
+#endif
+
 /*--------------------------------------------------------------------------*/
 void
 mtarch_init(void)
@@ -212,6 +217,12 @@ mtarch_pstop(void)
 /*--------------------------------------------------------------------------*/
 void
 mtarch_pstart(void)
+{
+  
+}
+/*--------------------------------------------------------------------------*/
+void
+mtarch_stop(struct mtarch_thread *thread)
 {
   
 }
