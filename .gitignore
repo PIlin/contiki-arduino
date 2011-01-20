@@ -5,3 +5,5 @@
 *.native
 *.core
 obj_*
+examples/*/symbols.c
+examples/*/symbols.h
