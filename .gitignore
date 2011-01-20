@@ -1,0 +1,7 @@
+*.a
+*.map
+*.hex
+*.arduino
+*.native
+*.core
+obj_*
