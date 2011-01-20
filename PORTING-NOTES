@@ -1,0 +1,51 @@
+= Architecture: Atmel AVR
+
+== ANY Branch
+
+We should enable some very easy way of
+adding support for any extra AVR chip!
+
+This may require some new structure in
+place, but giving generic names to things
+and then adding a header for every chip
+would be quite appropriate.
+
+Of course there is one reason why someone
+may wish to use anything other then
+GCC with AVR LIBC, but these can be
+adjusted as well.
+
+== Arduino Branch
+
+=== Support for all 'official' Arduinos
+
+http://en.wikipedia.org/wiki/Arduino#Hardware
+
+Arduino Board	Atmel AVR MCU	Flash/EEPROM/SRAM	GPIO/PWM/ADC
+Diecimila	ATmega168	16/0.5/1		14/6/6
+Duemilanove	ATmega328	32/1/2			14/6/6
+Uno		ATmega328	32/1/2			14/6/6
+Mega		ATmega1280	128/4/8			54/14/16
+Fio		ATmega328P	32/1/2			14/6/8
+Mega2560	ATmega2560	256/4/8			54/14/16
+
+Support for ATmega8U2, which is used in newer versions also
+may be added, someone may whish to make use of this too.
+http://www.atmel.com/dyn/products/product_card.asp?part_id=4600
+
+In regards to ATmega328P vs ATmega328, suffix 'P' stands for
+'PicoPower', which means that these two chips should be the
+physically the same.
+
+Looks like all that has too be done is adding these:
+* mega1280
+* mega2560
+
+Are any other chips used on different boards out there ?
+
+If anyone has the expensive BlueTooth board, it may be nice
+to get this working with 6loWPAN !!
+
+= Architecture: Other XXX
+== Other Branch
+=== Support for SOMETHING
