@@ -5,5 +5,8 @@
 *.native
 *.core
 obj_*
+<<<<<<< HEAD
 examples/*/symbols.c
 examples/*/symbols.h
+=======
+>>>>>>> fa83a9d43fb19dda97b0a4f4591c22c95ce98e64
