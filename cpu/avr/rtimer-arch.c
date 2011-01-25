@@ -87,7 +87,7 @@ ISR (TIMER3_COMPA_vect) {
 }
 
 #else
-#error "No Timer3 in rtimer-arch.c"
+#warning "No Timer3 in rtimer-arch.c"
 
 #endif
 /*---------------------------------------------------------------------------*/
@@ -119,7 +119,7 @@ rtimer_arch_init(void)
   TCCR3B |= 5;
 
 #else
-#error "No Timer3 in rtimer-arch.c"
+#warning "No Timer3 in rtimer-arch.c"
 
 #endif
 
@@ -145,7 +145,7 @@ rtimer_arch_schedule(rtimer_clock_t t)
   ETIMSK |= (1 << OCIE3A);
 
 #else
-#error "No Timer3 in rtimer-arch.c"
+#warning "No Timer3 in rtimer-arch.c"
 
 #endif
 
