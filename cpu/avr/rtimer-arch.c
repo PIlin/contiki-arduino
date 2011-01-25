@@ -50,17 +50,19 @@
 #include "sys/rtimer.h"
 #include "rtimer-arch.h"
 
-#if defined(__AVR_ATmega1281__) || defined(__AVR_ATmega1284P__)
+#if defined(__AVR_ATmega1281__)
 //#error FTH081029 test timer 3
 #define ETIMSK TIMSK3
 #define ETIFR TIFR3
 #define TICIE3 ICIE3
+#endif
 
 //Has no 'C', so we just set it to B. The code doesn't really use C so this
 //is safe to do but lets it compile. Probably should enable the warning if
 //it is ever used on other platforms.
 //#warning no OCIE3C in timer3 architecture, hopefully it won't be needed!
 
+#if defined(__AVR_ATmega1281P__)
 #define OCIE3C	OCIE3B
 #define OCF3C	OCF3B
 #endif
