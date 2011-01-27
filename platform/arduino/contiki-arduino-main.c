@@ -53,10 +53,6 @@
 #include "dev/serial-line.h"
 #include "dev/slip.h"
 
-//#ifdef RAVEN_LCD_INTERFACE
-//#include "raven-lcd.h"
-//#endif
-
 //#include "sicslowmac.h"
 
 #if 0
@@ -110,6 +106,8 @@ main(void)
   //Give ourselves a prefix
   //init_net();
 
+  /* This line wasn't present in ProMini code */
+  /* Make pin 5 on port B an input (PB5 SCK/PCINT5) */
   PORTB &= ~(1<<5);
   serial_line_init();
 
