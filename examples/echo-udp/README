@@ -1,0 +1,13 @@
+Simple echo server replying what's received on a UDP port.
+
+It creates a UDP 'connection', listening on port 50000, waiting for an incoming packet.
+When it's received, it sends back the same data prefixed with "rx=".
+
+Once programmed, connect a node to a serial port of you computer, and run the tunslip program (found in Contiki/tools) as root:
+# cd Contiki/tools
+# ./tunslip -s /dev/ttyS0 -B 115200 172.16.0.0 255.255.0.0
+
+Let this program run. You can now interact with the IP stack of the node.
+Test the application using netcat:
+$ nc -u 172.16.xxx.xxx 50000
+Where 172.16.xxx.xxx should be replaced by the node IP address, which is displayed on the tunslip program when the node is booting.
