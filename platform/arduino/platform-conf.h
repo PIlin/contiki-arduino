@@ -50,21 +50,65 @@
 /*
  * MCU and clock rate.
  */
-#define MCU_MHZ 16
+#ifndef MCU_MHZ
+ #define MCU_MHZ 16
+ #warning "Setting default MCU_MHZ value (@16MHz)"
+#endif
 
 /* Clock ticks per second */
 #define CLOCK_CONF_SECOND 125
 
 
 /* LED ports */
-#define LEDS_PxDIR DDRA // port direction register
-#define LEDS_PxOUT PORTA // port register
-#define LEDS_CONF_RED    0x04 //red led
-#define LEDS_CONF_GREEN  0x02 // green led
-#define LEDS_CONF_YELLOW 0x01 // yellow led
+#define LEDS_PxDIR DDRA /**< port direction register */
+#define LEDS_PxOUT PORTA /**< port register */
+#if 0
+#define LEDS_CONF_RED    0x04 /**< red led */
+#define LEDS_CONF_GREEN  0x02 /**< green led */
+#define LEDS_CONF_YELLOW 0x01 /**< yellow led */
+#endif
 
-/* COM port to be used for SLIP connection */
-#define SLIP_PORT RS232_PORT_0
+#include "dev/rs232.h"
+
+/* USART port configuration for SLIP */
+
+#ifndef SLIP_PORT
+ #ifndef RS232_PORT_0
+	#error  "RS232 header was not included ?"
+ #else
+  #define SLIP_PORT (RS232_PORT_0)
+  #warning "Setting default SLIP port (#0)"
+ #endif
+#endif
+
+#ifndef SLIP_BAUD
+ #ifndef USART_BAUD_115200
+	#error  "RS232 header was not included ?"
+ #else
+  #define SLIP_BAUD (USART_BAUD_115200)
+  #warning "Setting default SLIP baud rate (@115200)"
+ #endif
+#endif
+
+/* USART port configuration for serial I/O */
+
+#ifndef USART_PORT
+ #ifndef RS232_PORT_0
+	#error  "RS232 header was not included ?"
+ #else
+  #define USART_PORT (RS232_PORT_0)
+  #warning "Setting default RS232 I/O port (#0)"
+ #endif
+#endif
+
+#ifndef USART_BAUD
+ #ifndef USART_BAUD_9600 
+	#error  "RS232 header was not included ?"
+ #else
+  #define USART_BAUD (USART_BAUD_9600)
+  #warning "Setting default RS232 I/O baud rate (@9600)"
+ #endif
+#endif
 
 /* Pre-allocated memory for loadable modules heap space (in bytes)*/
 #define MMEM_CONF_SIZE 256
@@ -97,6 +141,7 @@
 #define MOSI           2  /* - Output: SPI Master out - slave in (MOSI) - ATMEGA128 PORTB, PIN2 */
 #define MISO           3  /* - Input:  SPI Master in - slave out (MISO) - ATMEGA128 PORTB, PIN3 */
 
+#if 0
 /*
  * SPI bus - M25P80 external flash configuration.
  */
@@ -131,9 +176,6 @@
 #define CSN            0
 #define VREG_EN        5
 #define RESET_N        6
-
-
-#if 0
 
 /* - Input: FIFOP from CC2420 - ATMEGA128 PORTE, PIN6 */
 #define CC2420_FIFOP_PORT(type)   P##type##E

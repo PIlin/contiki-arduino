@@ -43,7 +43,7 @@
 #include <avr/boot.h>
 #include <avr/pgmspace.h>
 #include <avr/interrupt.h>
-#include "dev/rs232.h"
+/* #include "dev/rs232.h" */
 #include "elfloader-arch.h"
 #include "lib/mmem.h"
 

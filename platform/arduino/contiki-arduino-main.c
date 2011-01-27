@@ -31,10 +31,10 @@
  * @(#)$$
  */
 
+#include <stdio.h>
 #include <avr/pgmspace.h>
 #include <avr/fuse.h>
 #include <avr/eeprom.h>
-#include <stdio.h>
 
 #include "lib/mmem.h"
 #include "loader/symbols-def.h"
@@ -55,6 +55,8 @@
 
 //#include "sicslowmac.h"
 
+#include "platform-conf.h"
+
 #if 0
 FUSES =
 	{
@@ -73,13 +75,18 @@ PROCINIT(&etimer_process, &serial_line_process);
 void
 init_lowlevel(void)
 {
-  rs232_init(RS232_PORT_0, USART_BAUD_57600,
+  rs232_init(USART_PORT, USART_BAUD,
              USART_PARITY_NONE | USART_STOP_BITS_1 | USART_DATA_BITS_8);
 
-  /* Redirect stdout to second port */
-  rs232_redirect_stdout(RS232_PORT_0);
+#if WITH_UIP || WITH_UIP6
+  /* Initialise SPLIP on USART port */
+  slip_arch_init(SLIP_BAUD);
+#else
+  /* Redirect stdout and stdin to USART port */
+  rs232_redirect_stdout(USART_PORT);
+  rs232_set_input(USART_PORT, serial_line_input_byte);
+#endif
 
-  rs232_set_input(RS232_PORT_0, serial_line_input_byte);
 }
 
 int
@@ -93,15 +100,12 @@ main(void)
   /* Clock */
   clock_init();
 
-
   /* Process subsystem */
   process_init();
 
   /* Register initial processes */
   procinit_init();
 
-  /* Autostart processes */
-  autostart_start(autostart_processes);
 
   //Give ourselves a prefix
   //init_net();
@@ -111,14 +115,19 @@ main(void)
   PORTB &= ~(1<<5);
   serial_line_init();
 
+  /* Autostart processes */
+  autostart_start(autostart_processes);
+
   printf_P(PSTR("\r\n********BOOTING CONTIKI*********\r\n"));
 
   printf_P(PSTR("System online.\r\n"));
 
   /* Main scheduler loop */
-  while(1) {
+  do {
+
     process_run();
-  }
+
+  } while (1);
 
   return 0;
 }
