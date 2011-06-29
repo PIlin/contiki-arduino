@@ -106,7 +106,7 @@ PROCESS_THREAD(example_psock_server_process, ev, data)
    * using the HTONS() macro to convert the port number (12345) to
    * network byte order as required by the tcp_listen() function.
    */
-  tcp_listen(HTONS(12345));
+  tcp_listen(UIP_HTONS(12345));
 
   /*
    * We loop for ever, accepting new connections.
