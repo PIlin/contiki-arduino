@@ -3,7 +3,7 @@ CONTIKI_CORE		= contiki-arduino-main
 CONTIKI_TARGET_MAIN	= ${CONTIKI_CORE}.o
 
 CONTIKI_TARGET_SOURCEFILES +=	rs232.c cfs-eeprom.c eeprom.c random.c \
-				mmem.c contiki-arduino-main.c slip.c slip_uart0.c
+				mmem.c contiki-arduino-main.c slip.c
 
 CONTIKIAVR	= $(CONTIKI)/cpu/avr
 CONTIKIBOARD	= .
