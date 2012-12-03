@@ -8,7 +8,7 @@ CONTIKI_TARGET_SOURCEFILES +=	rs232.c cfs-eeprom.c eeprom.c random.c \
 CONTIKIAVR	= $(CONTIKI)/cpu/avr
 CONTIKIBOARD	= .
 
-ifndef $(USART_BAUD)
+ifndef USART_BAUD
 USART_BAUD	= 9600
 endif
 
@@ -35,15 +35,38 @@ AVR_MCU_SPEED	= 16000000UL
 MCU		= atmega168
 USART_PORT	= 0
 
+else ifeq ($(ARDUINO_MODEL), Duemilanove-328) # ATmega328p @ 16MHz (5V)
+# http://arduino.cc/en/Main/ArduinoBoardDuemilanove
+AVR_MCU_CLOCK	= 16
+AVR_MCU_SPEED	= 16000000UL
+MCU		= atmega328p
+USART_PORT	= 0
+
+else ifeq ($(ARDUINO_MODEL), Uno) # ATmega328p @ 16MHz (5V)
+# http://arduino.cc/en/Main/ArduinoBoardDuemilanove
+AVR_MCU_CLOCK	= 16
+AVR_MCU_SPEED	= 16000000UL
+MCU		= atmega328p 
+#MCU 	= m328p
+USART_PORT	= 0
+AVRDUDE_BAUD = 115200
+
 else
-#error "Please define Arduino board model in Makefile.arduino"
+$(error Please define Arduino board model in Makefile.arduino)
 endif
 
-AVRDUDE_OPTIONS		= -V -F -b $(USART_BAUD)
-#AVRDUDE_PROGRAMMER	= stk500v1
+ifndef AVRDUDE_BAUD
+AVRDUDE_BAUD = $(USART_BAUD)
+endif
 
-AVRDUDE_PROGRAMMER	= dapa
-AVRDUDE_PORT		= /dev/parport0
+#AVRDUDE_OPTIONS		= -V -F -b $(USART_BAUD)
+AVRDUDE_OPTIONS		= -v -b $(AVRDUDE_BAUD)
+
+#AVRDUDE_PROGRAMMER	= stk500v1
+#AVRDUDE_PROGRAMMER	= dapa
+AVRDUDE_PROGRAMMER 	= arduino
+
+AVRDUDE_PORT		= /dev/ttyACM0
 
 CONTIKI_PLAT_DEFS	= -DF_CPU=$(AVR_MCU_SPEED) \
 			  -DMCU_MHZ=$(AVR_MCU_CLOCK) \
