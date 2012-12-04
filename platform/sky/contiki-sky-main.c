@@ -29,14 +29,9 @@
  * @(#)$Id: contiki-sky-main.c,v 1.87 2011/01/09 21:03:42 adamdunkels Exp $
  */
 
-#include <signal.h>
 #include <stdio.h>
 #include <string.h>
-
-#include <io.h>
-
 #include "contiki.h"
-
 #include "dev/cc2420.h"
 #include "dev/ds2411.h"
 #include "dev/leds.h"
@@ -161,6 +156,7 @@ set_rime_addr(void)
   printf("%d\n", addr.u8[i]);
 }
 /*---------------------------------------------------------------------------*/
+#if !PROCESS_CONF_NO_PROCESS_NAMES
 static void
 print_processes(struct process * const processes[])
 {
@@ -172,6 +168,7 @@ print_processes(struct process * const processes[])
   }
   putchar('\n');
 }
+#endif /* !PROCESS_CONF_NO_PROCESS_NAMES */
 /*--------------------------------------------------------------------------*/
 #if WITH_UIP
 static void
@@ -190,6 +187,10 @@ set_gateway(void)
 }
 #endif /* WITH_UIP */
 /*---------------------------------------------------------------------------*/
+#if WITH_TINYOS_AUTO_IDS
+uint16_t TOS_NODE_ID = 0x1234; /* non-zero */
+uint16_t TOS_LOCAL_ADDRESS = 0x1234; /* non-zero */
+#endif /* WITH_TINYOS_AUTO_IDS */
 int
 main(int argc, char **argv)
 {
@@ -203,9 +204,6 @@ main(int argc, char **argv)
 
 
   uart1_init(BAUD2UBR(115200)); /* Must come before first printf */
-#if WITH_UIP
-  slip_arch_init(BAUD2UBR(115200));
-#endif /* WITH_UIP */
 
   leds_on(LEDS_GREEN);
   ds2411_init();
@@ -225,8 +223,12 @@ main(int argc, char **argv)
    */
 
   
+#if WITH_TINYOS_AUTO_IDS
+  node_id = TOS_NODE_ID;
+#else /* WITH_TINYOS_AUTO_IDS */
   /* Restore node id if such has been stored in external mem */
   node_id_restore();
+#endif /* WITH_TINYOS_AUTO_IDS */
 
   /* for setting "hardcoded" IEEE 802.15.4 MAC addresses */
 #ifdef IEEE_802154_MAC_ADDRESS
@@ -247,6 +249,10 @@ main(int argc, char **argv)
   process_start(&etimer_process, NULL);
 
   ctimer_init();
+
+#if WITH_UIP
+  slip_arch_init(BAUD2UBR(115200));
+#endif /* WITH_UIP */
 
   init_platform();
 
@@ -390,7 +396,11 @@ main(int argc, char **argv)
 
   watchdog_start();
 
+#if !PROCESS_CONF_NO_PROCESS_NAMES
   print_processes(autostart_processes);
+#else /* !PROCESS_CONF_NO_PROCESS_NAMES */
+  putchar('\n'); /* include putchar() */
+#endif /* !PROCESS_CONF_NO_PROCESS_NAMES */
   autostart_start(autostart_processes);
 
   /*

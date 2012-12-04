@@ -30,11 +30,15 @@
  * This file is part of libmc1322x: see http://mc1322x.devl.org
  * for details. 
  *
- * $Id: redbee-r1.h,v 1.1 2010/06/10 14:48:32 maralvira Exp $
+ *
  */
 
 #ifndef BOARD_REDBEE_R1_H
 #define BOARD_REDBEE_R1_H
+
+#define GPIO_LED_RED   GPIO_08
+#define GPIO_LED_GREEN GPIO_09
+#define GPIO_LED_BLUE  GPIO_10
 
 #define LED_RED   8
 #define LED_GREEN 9

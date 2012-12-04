@@ -41,26 +41,38 @@
 #include "dev/button-sensor.h"
 #include "dev/leds.h"
 #include "wget.h"
-#include "webserver-nogui.h"
 #include "httpd-simple.h"
 #include <stdio.h>
 
 /* The address of the server to register the services for this node */
-#define SERVER       "aaaa::1"
+#define SERVER       "[aaaa::1]"
 
 /* This command registers two services (/0 and /1) to turn the leds on or off */
 #define REGISTER_COMMAND "/r?p=0&d=Turn%20off%20leds&p=1&d=Turn%20on%20leds"
 
 /* The address of the other node to control */
-#define OTHER_NODE   "aaaa::212:7403:3:303"
+#define OTHER_NODE   "[aaaa::1]"
 
 /* The commands to send to the other node */
 #define SET_LEDS_ON  "/1"
 #define SET_LEDS_OFF "/0"
 
 PROCESS(websense_remote_process, "Websense Remote");
+PROCESS(webserver_nogui_process, "Web server");
+PROCESS_THREAD(webserver_nogui_process, ev, data)
+{
+  PROCESS_BEGIN();
 
-AUTOSTART_PROCESSES(&websense_remote_process);
+  httpd_init();
+
+  while(1) {
+    PROCESS_WAIT_EVENT_UNTIL(ev == tcpip_event);
+    httpd_appcall(data);
+  }
+
+  PROCESS_END();
+}
+AUTOSTART_PROCESSES(&websense_remote_process,&webserver_nogui_process);
 
 /*---------------------------------------------------------------------------*/
 static const char *TOP = "<html><head><title>Contiki Websense Remote</title></head><body>\n";
@@ -141,7 +153,6 @@ PROCESS_THREAD(websense_remote_process, ev, data)
 
   mode = 0;
   wget_init();
-  process_start(&webserver_nogui_process, NULL);
 
   SENSORS_ACTIVATE(button_sensor);
 

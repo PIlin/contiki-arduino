@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Swedish Institute of Computer Science.
+ * Copyright (c) 2010, Swedish Institute of Computer Science.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,6 @@ import java.util.Collection;
 import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.Random;
-import java.util.Vector;
 
 import org.apache.log4j.Logger;
 import org.jdom.Element;
@@ -57,9 +56,9 @@ import se.sics.cooja.plugins.skins.DGRMVisualizerSkin;
  * as a basis for other radio medium implementations.
  * 
  * The stand-alone radio medium supports propagation delays and
- * and single-value per-link transmission success ratio.
+ * and per-link transmission success ratio/RSSI.
  * 
- * @see UDGM
+ * @see AbstractRadioMedium
  * @author Fredrik Osterlind
  */
 @ClassDescription("Directed Graph Radio Medium (DGRM)")
@@ -88,19 +87,19 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
 
     requestEdgeAnalysis();
 
-  	/* Register plugin and visualizer skin */
+    /* Register plugin and visualizer skin */
     simulation.getGUI().registerPlugin(DGRMConfigurator.class);
     Visualizer.registerVisualizerSkin(DGRMVisualizerSkin.class);
   }
 
   public void removed() {
-  	super.removed();
+    super.removed();
 
-  	/* Unregister plugin and visualizer skin */
+    /* Unregister plugin and visualizer skin */
     simulation.getGUI().unregisterPlugin(DGRMConfigurator.class);
     Visualizer.unregisterVisualizerSkin(DGRMVisualizerSkin.class);
   }
-  
+
   public void addEdge(Edge e) {
     edges.add(e);
     requestEdgeAnalysis();
@@ -145,36 +144,15 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
     return edgesDirty;
   }
 
-  public void registerRadioInterface(Radio radio, Simulation sim) {
-    super.registerRadioInterface(radio, sim);
-
-    for (Edge edge: getEdges()) {
-      if (edge.delayedLoadConfig == null) {
-        continue;
-      }
-
-      /* Try to configure edge now */
-      if (edge.setConfigXML(edge.delayedLoadConfig, sim)) {
-        edge.delayedLoadConfig = null;
-      }
-    }
-
-    requestEdgeAnalysis();
-  }
-
   public void unregisterRadioInterface(Radio radio, Simulation sim) {
     super.unregisterRadioInterface(radio, sim);
 
-    if (radio == null) {
-      return;
-    }
     for (Edge edge: getEdges()) {
       if (edge.source == radio || edge.superDest.radio == radio) {
         removeEdge(edge);
+        requestEdgeAnalysis();
       }
     }
-
-    requestEdgeAnalysis();
   }
 
   public void updateSignalStrengths() {
@@ -203,7 +181,7 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
         if (intfRadio.getCurrentSignalStrength() < SS_STRONG) {
           intfRadio.setCurrentSignalStrength(SS_STRONG);
         }
-        
+
         if (!intfRadio.isInterfered()) {
           /*logger.warn("Radio was not interfered");*/
           intfRadio.interfereAnyReception();
@@ -211,39 +189,8 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
       }
     }
   }
-  
-  public static class DestinationRadio {
-    public Radio radio; /* destination radio */
-    public boolean toAll; /* to all destinations */
 
-    public DestinationRadio(Radio dest) {
-      this.radio = dest;
-      toAll = (radio == null);
-    }
 
-    public String toString() {
-      return radio.getMote().toString();
-    }
-
-    protected Object clone() {
-      return new DestinationRadio(radio);
-    }
-  }
-
-  public static class DGRMDestinationRadio extends DestinationRadio {
-    public double ratio; /* Link success ratio (per packet). */
-    public long delay; /* EXPERIMENTAL: Propagation delay (us). */
-
-    public DGRMDestinationRadio(Radio dest, double ratio, long delay) {
-      super(dest);
-      this.ratio = ratio;
-      this.delay = delay;
-    }
-
-    protected Object clone() {
-      return new DGRMDestinationRadio(radio, ratio, delay);
-    }
-  }
 
   /**
    * Generates hash table using current edges for efficient lookup.
@@ -254,51 +201,28 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
 
     /* Fill edge hash table with all edges */
     for (Edge edge: getEdges()) {
-      if (edge.source == null) {
-        /* XXX Wait until edge configuration has been loaded */
-        logger.warn("DGRM edges not loaded");
-        return;
-      }
-
       ArrayList<DestinationRadio> destRadios;
       if (!listTable.containsKey(edge.source)) {
-        /* Create new source */
         destRadios = new ArrayList<DestinationRadio>();
       } else {
-        /* Extend source radio with another destination */
         destRadios = listTable.get(edge.source);
       }
 
-      /* Explode special rule: to all radios */
-      if (edge.superDest.toAll) {
-        for (Radio r: getRegisteredRadios()) {
-          if (edge.source == r) {
-            continue;
-          }
-          DestinationRadio d = (DestinationRadio) edge.superDest.clone();
-          d.radio = r;
-          d.toAll = false;
-          destRadios.add(d);
-        }
-      } else {
-        destRadios.add(edge.superDest);
-      }
+      destRadios.add(edge.superDest);
       listTable.put(edge.source, destRadios);
     }
 
     /* Convert to arrays */
-    Hashtable<Radio,DestinationRadio[]> arrTable = 
-      new Hashtable<Radio,DestinationRadio[]>();
-      Enumeration<Radio> sources = listTable.keys();
-      while (sources.hasMoreElements()) {
-        Radio source = sources.nextElement();
-        DestinationRadio[] arr = 
-          listTable.get(source).toArray(new DestinationRadio[0]);
-        arrTable.put(source, arr);
-      }
+    Hashtable<Radio,DestinationRadio[]> arrTable =  new Hashtable<Radio,DestinationRadio[]>();
+    Enumeration<Radio> sources = listTable.keys();
+    while (sources.hasMoreElements()) {
+      Radio source = sources.nextElement();
+      DestinationRadio[] arr = listTable.get(source).toArray(new DestinationRadio[0]);
+      arrTable.put(source, arr);
+    }
 
-      this.edgesTable = arrTable;
-      edgesDirty = false;
+    this.edgesTable = arrTable;
+    edgesDirty = false;
   }
 
   /**
@@ -341,24 +265,24 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
         /*logger.info(source + ": Fail, receiver is sender");*/
         continue;
       }
-      
+
       /* Fail if radios are on different (but configured) channels */ 
       if (source.getChannel() >= 0 &&
           dest.radio.getChannel() >= 0 &&
           source.getChannel() != dest.radio.getChannel()) {
         continue;
       }
-      
-      if (!dest.radio.isReceiverOn()) {
-      	/* Fail: radio is off */
-      	/*logger.info(source + ": Fail, off");*/
-      	newConn.addInterfered(dest.radio);
-      	continue;
+
+      if (!dest.radio.isRadioOn()) {
+        /* Fail: radio is off */
+        /*logger.info(source + ": Fail, off");*/
+        newConn.addInterfered(dest.radio);
+        continue;
       }
-      
+
       if (dest.ratio < 1.0 && random.nextDouble() > dest.ratio) {
         /*logger.info(source + ": Fail, randomly");*/
-      	/* TODO Interfere now? */
+        /* TODO Interfere now? */
         newConn.addInterfered(dest.radio);
 
         dest.radio.interfereAnyReception();
@@ -376,7 +300,7 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
         }
         continue;
       }
-      
+
       if (dest.radio.isReceiving()) {
         /* Fail: radio is already actively receiving */
         /*logger.info(source + ": Fail, receiving");*/
@@ -398,14 +322,14 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
         }
         continue;
       }
-      
+
       if (dest.radio.isInterfered()) {
         /* Fail: radio is interfered in another connection */
         /*logger.info(source + ": Fail, interfered");*/
         newConn.addInterfered(dest.radio);
         continue;
       }
-      
+
       /* Success: radio starts receiving */
       /*logger.info(source + ": OK: " + dest.radio);*/
       newConn.addDestination(dest.radio, dest.delay);
@@ -427,126 +351,114 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
     return config;
   }
 
-  public boolean setConfigXML(final Collection<Element> configXML, boolean visAvailable) {
+  private Collection<Element> delayedConfiguration = null;
+  public boolean setConfigXML(Collection<Element> configXML, boolean visAvailable) {
     random = simulation.getRandomGenerator();
 
-    for (Element element : configXML) {
-      if (element.getName().equals("edge")) {
-        Edge edge = new Edge();
-        edge.delayedLoadConfig = element.getChildren();
-        addEdge(edge);
-      }
+    /* Wait until simulation has been loaded */
+    delayedConfiguration = configXML;
+    return true;
+  }
+  public void simulationFinishedLoading() {
+    if (delayedConfiguration == null) {
+      return;
     }
 
+    boolean oldConfig = false;
+    for (Element element : delayedConfiguration) {
+      if (element.getName().equals("edge")) {
+        Collection<Element> edgeConfig = element.getChildren();
+        Radio source = null;
+        DestinationRadio dest = null;
+        for (Element edgeElement : edgeConfig) {
+          if (edgeElement.getName().equals("src")) {
+            oldConfig = true;
+
+            /* Old config: lookup source mote */
+            for (Mote m: simulation.getMotes()) {
+              if (m.toString().equals(edgeElement.getText())) {
+                logger.info("Old config: mapping '" + edgeElement.getText() + "' to node " + m.getID());
+                source = m.getInterfaces().getRadio();
+                break;
+              }
+            }
+          } else if (edgeElement.getName().equals("source")) {
+            source = simulation.getMoteWithID(
+                Integer.parseInt(edgeElement.getText())).getInterfaces().getRadio();
+          } else if (oldConfig && edgeElement.getName().equals("ratio")) {
+            /* Old config: parse link ratio */
+            double ratio = Double.parseDouble(edgeElement.getText());
+            ((DGRMDestinationRadio)dest).ratio = ratio;
+          } else if (edgeElement.getName().equals("dest")) {
+            if (oldConfig) {
+              /* Old config: create simple destination link */
+              Radio destRadio = null;
+              for (Mote m: simulation.getMotes()) {
+                if (m.toString().equals(edgeElement.getText())) {
+                  logger.info("Old config: mapping '" + edgeElement.getText() + "' to node " + m.getID());
+                  destRadio = m.getInterfaces().getRadio();
+                  break;
+                }
+              }
+              dest = new DGRMDestinationRadio(destRadio);
+            } else {
+              String destClassName = edgeElement.getText().trim();
+              if (destClassName == null || destClassName.isEmpty()) {
+                continue;
+              }
+              Class<? extends DestinationRadio> destClass =
+                simulation.getGUI().tryLoadClass(this, DestinationRadio.class, destClassName);
+              if (destClass == null) {
+                throw new RuntimeException("Could not load class: " + destClassName);
+              }
+              try {
+                dest = destClass.newInstance();
+                dest.setConfigXML(edgeElement.getChildren(), simulation);
+              } catch (Exception e) {
+                throw (RuntimeException) 
+                new RuntimeException("Unknown class: " + destClassName).initCause(e);
+              }
+            }
+          }
+        }
+        if (source == null || dest == null) {
+          logger.fatal("Failed loading DGRM links, aborting");
+          return;
+        } else {
+          addEdge(new Edge(source, dest));
+        }
+      }
+    }
     requestEdgeAnalysis();
-    return true;
+    delayedConfiguration = null;
   }
 
   public static class Edge {
-    public Radio source;
-    public DestinationRadio superDest;
-
-    private Edge() {
-      /* Internal constructor: await config */
-      source = null;
-      superDest = null;
-    }
+    public Radio source = null;
+    public DestinationRadio superDest = null;
 
     public Edge(Radio source, DestinationRadio dest) {
       this.source = source;
       this.superDest = dest;
     }
 
-    /* Internal methods */
-    private Collection<Element> delayedLoadConfig = null; /* Used for restoring edges from config */
     private Collection<Element> getConfigXML() {
-      Vector<Element> config = new Vector<Element>();
+      ArrayList<Element> config = new ArrayList<Element>();
       Element element;
 
-      element = new Element("src");
-      element.setText(source.getMote().toString());
+      element = new Element("source");
+      element.setText("" + source.getMote().getID());
       config.add(element);
 
       element = new Element("dest");
-      if (superDest.toAll) {
-        element.setText("ALL");
-      } else {
-        element.setText(superDest.radio.getMote().toString());
-      }
-      config.add(element);
-
-      if (superDest instanceof DGRMDestinationRadio) {
-        element = new Element("ratio");
-        element.setText("" + ((DGRMDestinationRadio)superDest).ratio);
-        config.add(element);
-
-        element = new Element("delay");
-        element.setText("" + ((DGRMDestinationRadio)superDest).delay);
+      element.setText(superDest.getClass().getName());
+      Collection<Element> destConfig = superDest.getConfigXML();
+      if (destConfig != null) {
+        element.addContent(destConfig);
         config.add(element);
       }
 
       return config;
     }
-
-    private boolean setConfigXML(Collection<Element> configXML, Simulation simulation) {
-      Radio dest = null;
-      double ratio = -1;
-      long delay = -1;
-
-      for (Element element : configXML) {
-        if (element.getName().equals("src")) {
-          String moteDescription = element.getText();
-
-          boolean foundMote = false;
-          for (Mote m: simulation.getMotes()) {
-            if (moteDescription.equals(m.toString())) {
-              foundMote = true;
-              source = m.getInterfaces().getRadio();
-              break;
-            }
-          }
-
-          if (!foundMote) {
-            return false;
-          }
-        }
-
-        if (element.getName().equals("dest")) {
-          String moteDescription = element.getText();
-
-          if (moteDescription.equals("ALL")) {
-            dest = null; /* ALL */
-          } else {
-            boolean foundMote = false;
-            for (Mote m: simulation.getMotes()) {
-              if (moteDescription.equals(m.toString())) {
-                foundMote = true;
-                dest = m.getInterfaces().getRadio();
-                break;
-              }
-            }
-            if (!foundMote) {
-              return false;
-            }
-          }
-        }
-
-        if (element.getName().equals("ratio")) {
-          ratio = Double.parseDouble(element.getText());
-        }
-
-        if (element.getName().equals("delay")) {
-          delay = Long.parseLong(element.getText());
-        }
-      }
-
-      if (ratio < 0 || delay < 0) {
-        return false;
-      }
-
-      superDest = new DGRMDestinationRadio(dest, ratio, delay);
-      return true;
-    }
   }
-
 }

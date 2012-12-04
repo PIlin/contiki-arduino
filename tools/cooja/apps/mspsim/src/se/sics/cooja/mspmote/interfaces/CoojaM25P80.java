@@ -26,7 +26,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: CoojaM25P80.java,v 1.2 2009/08/11 17:09:16 fros4943 Exp $
  */
 
 package se.sics.cooja.mspmote.interfaces;
@@ -34,19 +33,64 @@ package se.sics.cooja.mspmote.interfaces;
 import java.io.IOException;
 import java.util.Arrays;
 
-import org.apache.log4j.Logger;
-
 import se.sics.coffee.CoffeeConfiguration;
 import se.sics.coffee.CoffeeImage;
 import se.sics.mspsim.chip.M25P80;
-import se.sics.mspsim.core.*;
+import se.sics.mspsim.chip.Storage;
+import se.sics.mspsim.core.MSP430Core;
 
 public class CoojaM25P80 extends M25P80 implements CoffeeImage {
-  private static Logger logger = Logger.getLogger(CoojaM25P80.class);
 
   public static int SIZE = 1024*1024;
   private byte[] data = new byte[SIZE];
   private long pos;
+  private Storage storage = new Storage() {
+
+    @Override
+    public int read(long pos, byte[] buffer) throws IOException {
+        System.arraycopy(data, (int) pos, buffer, 0, buffer.length);
+        return buffer.length;
+    }
+
+    @Override
+    public int read(long pos, byte[] buffer, int offset, int len)
+            throws IOException {
+        System.arraycopy(data, (int) pos, buffer, offset, len);
+        return len;
+    }
+
+    @Override
+    public void write(long pos, byte[] buffer) throws IOException {
+        System.arraycopy(buffer, 0, data, (int) pos, buffer.length);
+    }
+
+    @Override
+    public void write(long pos, byte[] buffer, int offset, int len)
+            throws IOException {
+        System.arraycopy(buffer, offset, data, (int) pos, len);
+    }
+
+    @Override
+    public long getMaxSize() {
+        return SIZE;
+    }
+
+    @Override
+    public void setMaxSize(long size) {
+        // Ignore
+    }
+
+    @Override
+    public void close() {
+        // Nothing to close
+    }
+
+    @Override
+    public String info() {
+        return CoojaM25P80.class.getName();
+    }
+
+  };
 
   private static CoffeeConfiguration COFFEE_CONF;
   static {
@@ -61,6 +105,7 @@ public class CoojaM25P80 extends M25P80 implements CoffeeImage {
   public CoojaM25P80(MSP430Core cpu) {
     super(cpu);
     pos = 0;
+    setStorage(storage);
   }
 
   public void seek(long pos) throws IOException {
@@ -81,7 +126,7 @@ public class CoojaM25P80 extends M25P80 implements CoffeeImage {
    * @see se.sics.coffee.CoffeeImage#erase(int, int)
    */
   public void erase(int size, int offset) throws IOException {
-    Arrays.fill(data, CoffeeConfiguration.startOffset + offset, size, (byte)0);
+    Arrays.fill(data, COFFEE_CONF.startOffset + offset, size, (byte)0);
   }
 
   /**
@@ -97,7 +142,7 @@ public class CoojaM25P80 extends M25P80 implements CoffeeImage {
    * @see se.sics.coffee.CoffeeImage#read(byte[], int, int)
    */
   public void read(byte[] bytes, int size, int offset) throws IOException {
-    System.arraycopy(data, CoffeeConfiguration.startOffset + offset, bytes, 0, size);
+    System.arraycopy(data, COFFEE_CONF.startOffset + offset, bytes, 0, size);
   }
 
   /**
@@ -105,7 +150,7 @@ public class CoojaM25P80 extends M25P80 implements CoffeeImage {
    * @see se.sics.coffee.CoffeeImage#write(byte[], int, int)
    */
   public void write(byte[] bytes, int size, int offset) throws IOException {
-    System.arraycopy(bytes, 0, data, CoffeeConfiguration.startOffset + offset, size);
+    System.arraycopy(bytes, 0, data, COFFEE_CONF.startOffset + offset, size);
   }
 
 }

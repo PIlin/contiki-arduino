@@ -30,7 +30,7 @@
  *
  * This file is part of the Contiki OS.
  *
- * $Id: contiki-mc1322x-conf.h,v 1.1 2010/06/09 14:43:22 maralvira Exp $
+ *
  */
 
 #ifndef __CONTIKI_MC1322X_CONF_H__
@@ -47,15 +47,12 @@ typedef int32_t s32_t;
 /* Pre-allocated memory for loadable modules heap space (in bytes)*/
 #define MMEM_CONF_SIZE 256
 
-typedef uint32_t clock_time_t;
+/* These names are deprecated, use C99 names. */
 typedef unsigned char u8_t;
 typedef unsigned short u16_t;
 typedef unsigned long u32_t;
 typedef unsigned short uip_stats_t;
 
-void clock_delay(unsigned int us2);
-void clock_wait(int ms10);
-void clock_set_seconds(unsigned long s);
-unsigned long clock_seconds(void);
+typedef uint32_t clock_time_t;
 
 #endif

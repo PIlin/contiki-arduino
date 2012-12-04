@@ -31,18 +31,8 @@
 
 package se.sics.cooja.mspmote.interfaces;
 
-import java.awt.BorderLayout;
-import java.awt.GridLayout;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.ArrayDeque;
 import java.util.Collection;
-import java.util.Observable;
-import java.util.Observer;
-
-import javax.swing.JButton;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
 
 import org.apache.log4j.Logger;
 import org.jdom.Element;
@@ -62,6 +52,7 @@ import se.sics.cooja.mspmote.MspMoteTimeEvent;
 import se.sics.mspsim.core.IOUnit;
 import se.sics.mspsim.core.USART;
 import se.sics.mspsim.core.USARTListener;
+import se.sics.mspsim.core.USARTSource;
 
 /**
  * TR1001 radio interface on ESB platform.
@@ -117,7 +108,7 @@ public class TR1001Radio extends Radio implements USARTListener, CustomDataRadio
     IOUnit usart = this.mote.getCPU().getIOUnit("USART 0");
     if (usart != null && usart instanceof USART) {
       radioUSART = (USART) usart;
-      radioUSART.setUSARTListener(this);
+      radioUSART.addUSARTListener(this);
     } else {
       throw new RuntimeException("Bad TR1001 IO: " + usart);
     }
@@ -200,7 +191,7 @@ public class TR1001Radio extends Radio implements USARTListener, CustomDataRadio
   }
 
   /* USART listener support */
-  public void dataReceived(USART source, int data) {
+  public void dataReceived(USARTSource source, int data) {
     if (!isTransmitting()) {
       /* New transmission discovered */
       /*logger.info("----- NEW TR1001 TRANSMISSION DETECTED -----");*/
@@ -251,9 +242,6 @@ public class TR1001Radio extends Radio implements USARTListener, CustomDataRadio
       TR1001Radio.this.notifyObservers();
       /* logger.info("----- TR1001 TRANSMISSION ENDED -----"); */
     }
-  }
-
-  public void stateChanged(int state) {
   }
 
   /* General radio support */
@@ -355,86 +343,6 @@ public class TR1001Radio extends Radio implements USARTListener, CustomDataRadio
     }
   };
 
-  public JPanel getInterfaceVisualizer() {
-    // Location
-    JPanel wrapperPanel = new JPanel(new BorderLayout());
-    JPanel panel = new JPanel(new GridLayout(5, 2));
-
-    final JLabel statusLabel = new JLabel("");
-    final JLabel lastEventLabel = new JLabel("");
-    final JLabel channelLabel = new JLabel("ALL CHANNELS (-1)");
-    final JLabel powerLabel = new JLabel("");
-    final JLabel ssLabel = new JLabel("");
-    final JButton updateButton = new JButton("Update");
-
-    panel.add(new JLabel("STATE:"));
-    panel.add(statusLabel);
-
-    panel.add(new JLabel("LAST EVENT:"));
-    panel.add(lastEventLabel);
-
-    panel.add(new JLabel("CHANNEL:"));
-    panel.add(channelLabel);
-
-    panel.add(new JLabel("OUTPUT POWER:"));
-    panel.add(powerLabel);
-
-    panel.add(new JLabel("SIGNAL STRENGTH:"));
-    JPanel smallPanel = new JPanel(new GridLayout(1, 2));
-    smallPanel.add(ssLabel);
-    smallPanel.add(updateButton);
-    panel.add(smallPanel);
-
-    updateButton.addActionListener(new ActionListener() {
-      public void actionPerformed(ActionEvent e) {
-        powerLabel.setText(getCurrentOutputPower() + " dBm (indicator="
-            + getCurrentOutputPowerIndicator() + "/"
-            + getOutputPowerIndicatorMax() + ")");
-        ssLabel.setText(getCurrentSignalStrength() + " dBm");
-      }
-    });
-
-    Observer observer;
-    this.addObserver(observer = new Observer() {
-      public void update(Observable obs, Object obj) {
-        if (isTransmitting()) {
-          statusLabel.setText("transmitting");
-        } else if (isReceiving()) {
-          statusLabel.setText("receiving");
-        } else if (radioOn) {
-          statusLabel.setText("listening for traffic");
-        } else {
-          statusLabel.setText("HW off");
-        }
-
-        lastEventLabel.setText(lastEvent + " @ time=" + lastEventTime);
-
-        powerLabel.setText(getCurrentOutputPower() + " dBm (indicator="
-            + getCurrentOutputPowerIndicator() + "/"
-            + getOutputPowerIndicatorMax() + ")");
-        ssLabel.setText(getCurrentSignalStrength() + " dBm");
-      }
-    });
-
-    observer.update(null, null);
-
-    // Saving observer reference for releaseInterfaceVisualizer
-    panel.putClientProperty("intf_obs", observer);
-
-    wrapperPanel.add(BorderLayout.NORTH, panel);
-    return wrapperPanel;
-  }
-
-  public void releaseInterfaceVisualizer(JPanel panel) {
-    Observer observer = (Observer) panel.getClientProperty("intf_obs");
-    if (observer == null) {
-      logger.fatal("Error when releasing panel, observer is null");
-      return;
-    }
-
-    this.deleteObserver(observer);
-  }
-
   public Collection<Element> getConfigXML() {
     return null;
   }
@@ -446,7 +354,7 @@ public class TR1001Radio extends Radio implements USARTListener, CustomDataRadio
     return mote;
   }
 
-  public boolean isReceiverOn() {
+  public boolean isRadioOn() {
     /* TODO Implement me */
     return true;
   }

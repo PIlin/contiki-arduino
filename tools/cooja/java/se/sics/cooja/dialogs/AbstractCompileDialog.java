@@ -25,27 +25,58 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $Id: AbstractCompileDialog.java,v 1.9 2010/03/08 14:26:12 fros4943 Exp $
  */
 
 package se.sics.cooja.dialogs;
 
-import java.awt.*;
-import java.awt.event.*;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Dialog;
+import java.awt.Dimension;
+import java.awt.Frame;
+import java.awt.GraphicsEnvironment;
+import java.awt.Rectangle;
+import java.awt.Window;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 
-import javax.swing.*;
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.InputMap;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComponent;
+import javax.swing.JDialog;
+import javax.swing.JFileChooser;
+import javax.swing.JLabel;
+import javax.swing.JMenuItem;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileFilter;
 
 import org.apache.log4j.Logger;
 
-import se.sics.cooja.*;
-import se.sics.cooja.dialogs.MessageList;
+import se.sics.cooja.GUI;
+import se.sics.cooja.MoteInterface;
+import se.sics.cooja.MoteType;
+import se.sics.cooja.Simulation;
 import se.sics.cooja.interfaces.MoteID;
 import se.sics.cooja.interfaces.Position;
 
@@ -86,7 +117,9 @@ public abstract class AbstractCompileDialog extends JDialog {
   protected JTextField contikiField;
   private JTextField descriptionField;
   private JTextArea commandsArea;
-  private JButton nextButton;
+  private JButton cleanButton;
+  private JButton compileButton;
+  private JButton createButton;
 
   private Component currentCompilationOutput = null;
   private Process currentCompilationProcess = null;
@@ -136,13 +169,13 @@ public abstract class AbstractCompileDialog extends JDialog {
     };
     DocumentListener contikiFieldListener = new DocumentListener() {
       public void changedUpdate(DocumentEvent e) {
-        SwingUtilities.invokeLater(selectedContikiFile);
+        selectedContikiFile.run();
       }
       public void insertUpdate(DocumentEvent e) {
-        SwingUtilities.invokeLater(selectedContikiFile);
+        selectedContikiFile.run();
       }
       public void removeUpdate(DocumentEvent e) {
-        SwingUtilities.invokeLater(selectedContikiFile);
+        selectedContikiFile.run();
       }
     };
     sourcePanel.add(contikiField);
@@ -219,38 +252,70 @@ public abstract class AbstractCompileDialog extends JDialog {
 
     topPanel.add(sourcePanel);
 
-    nextButton = new JButton("NEXT");
-    nextButton.addActionListener(new ActionListener() {
+    Action compileAction = new AbstractAction("Compile") {
+    	private static final long serialVersionUID = 1L;
+    	public void actionPerformed(ActionEvent e) {
+    		if (!compileButton.isEnabled()) {
+    			return;
+    		}
+    		try {
+    			setDialogState(DialogState.AWAITING_COMPILATION);
+    			compileContiki();
+    		} catch (Exception e1) {
+    			logger.fatal("Error while compiling Contiki: " + e1.getMessage());
+    		}
+    	}
+    };
+    cleanButton = new JButton("Clean");
+    cleanButton.setToolTipText("make clean TARGET=" + getTargetName());
+    cleanButton.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				try {
+					currentCompilationProcess = CompileContiki.compile(
+							"make clean TARGET=" + getTargetName(),
+							compilationEnvironment,
+							null /* Do not observe output firmware file */,
+							new File(contikiField.getText()).getParentFile(),
+							null,
+							null,
+							null,
+							true
+					);
+				} catch (Exception e1) {
+					logger.fatal("Clean failed: " + e1.getMessage(), e1);
+				}
+			}
+		});
+
+    compileButton = new JButton(compileAction);
+    getRootPane().setDefaultButton(compileButton);
+
+
+    createButton = new JButton("Create");
+    createButton.addActionListener(new ActionListener() {
       public void actionPerformed(ActionEvent e) {
-        if (nextButton.getText().equals("Compile")) {
-          try {
-            compileContiki();
-          } catch (Exception e1) {
-            logger.fatal("Error while compiling Contiki: " + e1.getMessage());
-          }
-        } else if (nextButton.getText().equals("Create")) {
-          /* Write mote type settings (generic) */
-          moteType.setDescription(descriptionField.getText());
-          moteType.setContikiSourceFile(contikiSource);
-          moteType.setContikiFirmwareFile(contikiFirmware);
-          moteType.setMoteInterfaceClasses(getSelectedMoteInterfaceClasses());
-          moteType.setCompileCommands(getCompileCommands());
+      	/* Write mote type settings (generic) */
+      	moteType.setDescription(descriptionField.getText());
+      	moteType.setContikiSourceFile(contikiSource);
+      	moteType.setContikiFirmwareFile(contikiFirmware);
+      	moteType.setMoteInterfaceClasses(getSelectedMoteInterfaceClasses());
+      	moteType.setCompileCommands(getCompileCommands());
 
-          /* Write mote type settings (mote type specific) */
-          writeSettingsToMoteType();
+      	/* Write mote type settings (mote type specific) */
+      	writeSettingsToMoteType();
 
-          AbstractCompileDialog.this.dispose();
-        }
+      	AbstractCompileDialog.this.dispose();
       }
     });
-    getRootPane().setDefaultButton(nextButton);
 
     Box buttonPanel = Box.createHorizontalBox();
     buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
     buttonPanel.add(Box.createHorizontalGlue());
-    buttonPanel.add(new JLabel("Next:"));
+    buttonPanel.add(cleanButton);
     buttonPanel.add(Box.createHorizontalStrut(5));
-    buttonPanel.add(nextButton);
+    buttonPanel.add(compileButton);
+    buttonPanel.add(Box.createHorizontalStrut(5));
+    buttonPanel.add(createButton);
     buttonPanel.setAlignmentX(LEFT_ALIGNMENT);
 
     topPanel.add(buttonPanel);
@@ -267,25 +332,7 @@ public abstract class AbstractCompileDialog extends JDialog {
     setContentPane(mainPanel);
 
     setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-    addWindowListener(new WindowListener() {
-      public void windowDeactivated(WindowEvent e) {
-      }
-
-      public void windowIconified(WindowEvent e) {
-      }
-
-      public void windowDeiconified(WindowEvent e) {
-      }
-
-      public void windowOpened(WindowEvent e) {
-      }
-
-      public void windowClosed(WindowEvent e) {
-      }
-
-      public void windowActivated(WindowEvent e) {
-      }
-
+    addWindowListener(new WindowAdapter() {
       public void windowClosing(WindowEvent e) {
         abortAnyCompilation();
         contikiSource = null;
@@ -314,16 +361,30 @@ public abstract class AbstractCompileDialog extends JDialog {
       }
 
       /* Restore mote interface classes */
+      for (Component c : moteIntfBox.getComponents()) {
+        if (!(c instanceof JCheckBox)) {
+          continue;
+        }
+        ((JCheckBox) c).setSelected(false);
+      }
       if (moteType.getMoteInterfaceClasses() != null) {
+        for (Class<? extends MoteInterface> intfClass: getDefaultMoteInterfaces()) {
+          addMoteInterface(intfClass, false);
+        }
         for (Class<? extends MoteInterface> intf: moteType.getMoteInterfaceClasses()) {
           addMoteInterface(intf, true);
+        }
+      } else {
+        /* Select default mote interfaces */
+        for (Class<? extends MoteInterface> intfClass: getDefaultMoteInterfaces()) {
+          addMoteInterface(intfClass, true);
         }
       }
 
       /* Restore compile commands */
       if (moteType.getCompileCommands() != null) {
-        setCompileCommands(moteType.getCompileCommands());
-        setDialogState(DialogState.AWAITING_COMPILATION);
+      	setCompileCommands(moteType.getCompileCommands());
+      	setDialogState(DialogState.AWAITING_COMPILATION);
         restoredDialogState = true;
       }
     }
@@ -349,21 +410,9 @@ public abstract class AbstractCompileDialog extends JDialog {
     }
 
     /* Recompile at Ctrl+R */
-    Action recompileAction = new AbstractAction() {
-      public void actionPerformed(ActionEvent e) {
-        try {
-          setDialogState(DialogState.AWAITING_COMPILATION);
-          if (nextButton.getText().equals("Compile")) {
-            compileContiki();
-          }
-        } catch (Exception e1) {
-          e1.printStackTrace();
-        }
-      }
-    };
     InputMap inputMap = getRootPane().getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
     inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_R, KeyEvent.CTRL_DOWN_MASK, false), "recompile");
-    getRootPane().getActionMap().put("recompile", recompileAction);
+    getRootPane().getActionMap().put("recompile", compileAction);
 
     pack();
     setLocationRelativeTo(parent);
@@ -395,8 +444,7 @@ public abstract class AbstractCompileDialog extends JDialog {
   public abstract boolean canLoadFirmware(File file);
 
   protected String[] compilationEnvironment = null; /* Default environment: inherit from current process */
-  public void compileContiki()
-  throws Exception {
+  public void compileContiki() throws Exception {
     final MessageList taskOutput = new MessageList();
 
     if (contikiFirmware.exists()) {
@@ -417,7 +465,11 @@ public abstract class AbstractCompileDialog extends JDialog {
       throw new Exception("No compile commands specified");
     }
 
-    setDialogState(DialogState.IS_COMPILING);
+    SwingUtilities.invokeLater(new Runnable() {
+			public void run() {
+		    setDialogState(DialogState.IS_COMPILING);
+			}
+		});
     createNewCompilationTab(taskOutput);
 
     /* Add abort compilation menu item */
@@ -432,7 +484,8 @@ public abstract class AbstractCompileDialog extends JDialog {
 
     /* Called when last command has finished (success only) */
     final Action compilationSuccessAction = new AbstractAction() {
-      public void actionPerformed(ActionEvent e) {
+			private static final long serialVersionUID = -3815068126197234346L;
+			public void actionPerformed(ActionEvent e) {
         abortMenuItem.setEnabled(false);
 
         /* Make sure firmware exists */
@@ -447,7 +500,8 @@ public abstract class AbstractCompileDialog extends JDialog {
 
     /* Called immediately if any command fails */
     final Action compilationFailureAction = new AbstractAction() {
-      public void actionPerformed(ActionEvent e) {
+			private static final long serialVersionUID = -800799353242963993L;
+			public void actionPerformed(ActionEvent e) {
         abortMenuItem.setEnabled(false);
         setDialogState(DialogState.AWAITING_COMPILATION);
       }
@@ -455,7 +509,8 @@ public abstract class AbstractCompileDialog extends JDialog {
 
     /* Called once per command */
     final Action nextCommandAction = new AbstractAction() {
-      public void actionPerformed(ActionEvent e) {
+			private static final long serialVersionUID = -4525372566302330762L;
+			public void actionPerformed(ActionEvent e) {
         Action nextSuccessAction;
         if (commands.size() == 1) {
           nextSuccessAction = compilationSuccessAction;
@@ -515,23 +570,22 @@ public abstract class AbstractCompileDialog extends JDialog {
    * @see DialogState
    * @param dialogState New dialog state
    */
-  public void setDialogState(DialogState dialogState) {
+  protected void setDialogState(DialogState dialogState) {
     File sourceFile = new File(contikiField.getText());
+    compileButton.setText("Compile");
+    getRootPane().setDefaultButton(compileButton);
 
     switch (dialogState) {
     case NO_SELECTION:
-      nextButton.setText("Compile");
-      nextButton.setEnabled(false);
-      commandsArea.setEnabled(false);
-      SwingUtilities.invokeLater(new Runnable() {
-        public void run() {
-          commandsArea.setText("");
-        }
-      });
+    	cleanButton.setEnabled(false);
+    	compileButton.setEnabled(false);
+    	createButton.setEnabled(false);
+    	commandsArea.setEnabled(false);
       break;
 
     case SELECTED_SOURCE:
       if (!sourceFile.exists()) {
+        logger.warn("Could not find Contiki source: " + sourceFile.getAbsolutePath());
         setDialogState(DialogState.NO_SELECTION);
         return;
       }
@@ -540,9 +594,10 @@ public abstract class AbstractCompileDialog extends JDialog {
         return;
       }
 
-      nextButton.setText("Compile");
-      nextButton.setEnabled(true);
-      commandsArea.setEnabled(true);
+    	cleanButton.setEnabled(true);
+    	compileButton.setEnabled(true);
+    	createButton.setEnabled(false);
+    	commandsArea.setEnabled(true);
       setCompileCommands(getDefaultCompileCommands(sourceFile));
       contikiFirmware = getExpectedFirmwareFile(sourceFile);
       contikiSource = sourceFile;
@@ -551,6 +606,7 @@ public abstract class AbstractCompileDialog extends JDialog {
 
     case AWAITING_COMPILATION:
       if (!sourceFile.exists()) {
+        logger.warn("Could not find Contiki source: " + sourceFile.getAbsolutePath());
         setDialogState(DialogState.NO_SELECTION);
         return;
       }
@@ -559,21 +615,26 @@ public abstract class AbstractCompileDialog extends JDialog {
         return;
       }
 
-      nextButton.setText("Compile");
-      nextButton.setEnabled(true);
+      cleanButton.setEnabled(true);
+      compileButton.setEnabled(true);
+      createButton.setEnabled(false);
       commandsArea.setEnabled(true);
       break;
 
     case IS_COMPILING:
-      nextButton.setText("Compiling");
-      nextButton.setEnabled(false);
-      commandsArea.setEnabled(false);
+    	cleanButton.setEnabled(false);
+    	compileButton.setEnabled(false);
+    	compileButton.setText("Compiling");
+    	createButton.setEnabled(false);
+    	commandsArea.setEnabled(false);
       break;
 
     case COMPILED_FIRMWARE:
-      nextButton.setText("Create");
-      nextButton.setEnabled(true);
-      commandsArea.setEnabled(true);
+    	cleanButton.setEnabled(true);
+    	compileButton.setEnabled(true);
+    	createButton.setEnabled(true);
+    	commandsArea.setEnabled(true);
+      getRootPane().setDefaultButton(createButton);
       break;
 
     case SELECTED_FIRMWARE:
@@ -583,16 +644,17 @@ public abstract class AbstractCompileDialog extends JDialog {
         setDialogState(DialogState.NO_SELECTION);
         return;
       }
-
       if (!canLoadFirmware(contikiFirmware)) {
         setDialogState(DialogState.NO_SELECTION);
         return;
       }
 
-      nextButton.setText("Create");
-      nextButton.setEnabled(true);
-      commandsArea.setEnabled(false);
-      setCompileCommands("");
+    	cleanButton.setEnabled(true);
+    	compileButton.setEnabled(false);
+    	createButton.setEnabled(true);
+    	commandsArea.setEnabled(false);
+    	setCompileCommands("");
+      getRootPane().setDefaultButton(createButton);
       break;
 
     default:
@@ -619,10 +681,33 @@ public abstract class AbstractCompileDialog extends JDialog {
   private void addMoteInterfacesTab(JTabbedPane parent) {
     moteIntfBox = Box.createVerticalBox();
     JPanel panel = new JPanel(new BorderLayout());
-    panel.add(BorderLayout.NORTH, new JLabel("COOJA interacts with simulated motes via mote interfaces. You normally do not need to change these settings!"));
+    JLabel label = new JLabel("Cooja interacts with simulated motes via mote interfaces. These settings normally do not need to be changed.");
+    Box b = Box.createHorizontalBox();
+    b.add(new JButton(defaultAction));
+    b.add(label);
+    panel.add(BorderLayout.NORTH, b);
     panel.add(BorderLayout.CENTER, new JScrollPane(moteIntfBox));
     parent.addTab("Mote interfaces", null, panel, "Mote interfaces");
   }
+
+  private Action defaultAction = new AbstractAction("Use default") {
+    public void actionPerformed(ActionEvent e) {
+      /* Unselect all */
+      for (Component c : moteIntfBox.getComponents()) {
+        if (!(c instanceof JCheckBox)) {
+          continue;
+        }
+        ((JCheckBox) c).setSelected(false);
+      }
+
+      /* Select default */
+      for (Class<? extends MoteInterface> moteIntf : getDefaultMoteInterfaces()) {
+        addMoteInterface(moteIntf, true);
+      }
+    }
+  };
+
+  public abstract Class<? extends MoteInterface>[] getDefaultMoteInterfaces();
 
   /**
    * @return Currently selected mote interface classes
@@ -663,7 +748,7 @@ public abstract class AbstractCompileDialog extends JDialog {
    * @param selected If true, interface will initially be selected
    */
   public void addMoteInterface(Class<? extends MoteInterface> intfClass, boolean selected) {
-    /* If mote interface was already added, do nothing */
+    /* If mote interface was already added  */
     for (Component c : moteIntfBox.getComponents()) {
       if (!(c instanceof JCheckBox)) {
         continue;
@@ -678,6 +763,7 @@ public abstract class AbstractCompileDialog extends JDialog {
       }
 
       if (existingClass == intfClass) {
+        ((JCheckBox) c).setSelected(selected);
         return;
       }
     }
@@ -690,7 +776,6 @@ public abstract class AbstractCompileDialog extends JDialog {
     intfCheckBox.setToolTipText(intfClass.getName());
     intfCheckBox.addActionListener(new ActionListener() {
       public void actionPerformed(ActionEvent e) {
-
         if (contikiSource == null &&
             contikiFirmware != null) {
           setDialogState(DialogState.SELECTED_FIRMWARE);
@@ -760,4 +845,5 @@ public abstract class AbstractCompileDialog extends JDialog {
     return true;
   }
 
+  protected abstract String getTargetName();
 }

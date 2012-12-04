@@ -26,7 +26,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: uip-debug.c,v 1.1 2010/04/30 13:20:57 joxe Exp $
  */
 
 /**
@@ -39,43 +38,44 @@
  */
 
 #include "net/uip-debug.h"
-#include <stdio.h>
+
 /*---------------------------------------------------------------------------*/
 void
 uip_debug_ipaddr_print(const uip_ipaddr_t *addr)
 {
 #if UIP_CONF_IPV6
   uint16_t a;
-  int i, f;
+  unsigned int i;
+  int f;
   for(i = 0, f = 0; i < sizeof(uip_ipaddr_t); i += 2) {
     a = (addr->u8[i] << 8) + addr->u8[i + 1];
     if(a == 0 && f >= 0) {
       if(f++ == 0) {
-        printf("::");
+        PRINTA("::");
       }
     } else {
       if(f > 0) {
         f = -1;
       } else if(i > 0) {
-        printf(":");
+        PRINTA(":");
       }
-      printf("%x", a);
+      PRINTA("%x", a);
     }
   }
 #else /* UIP_CONF_IPV6 */
-  printf("%u.%u.%u.%u", addr->u8[0], addr->u8[1], addr->u8[2], addr->u8[3]);
+  PRINTA("%u.%u.%u.%u", addr->u8[0], addr->u8[1], addr->u8[2], addr->u8[3]);
 #endif /* UIP_CONF_IPV6 */
 }
 /*---------------------------------------------------------------------------*/
 void
 uip_debug_lladdr_print(const uip_lladdr_t *addr)
 {
-  int i;
+  unsigned int i;
   for(i = 0; i < sizeof(uip_lladdr_t); i++) {
     if(i > 0) {
-      printf(":");
+      PRINTA(":");
     }
-    printf("%02x", addr->addr[i]);
+    PRINTA("%02x", addr->addr[i]);
   }
 }
 /*---------------------------------------------------------------------------*/

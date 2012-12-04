@@ -48,6 +48,7 @@
 #include "lib/random.h"
 #include "net/netstack.h"
 #include "net/mac/frame802154.h"
+#include "lib/include/mc1322x.h"
 
 #if WITH_UIP6
 #include "net/sicslowpan.h"
@@ -66,11 +67,29 @@
 #include "contiki-maca.h"
 #include "contiki-uart.h"
 
-#define DEBUG 1
+/* Get periodic prints from idle loop, from clock seconds or rtimer interrupts */
+/* Use of rtimer will conflict with other rtimer interrupts such as contikimac radio cycling */
+#define PERIODICPRINTS 0
+#if PERIODICPRINTS
+//#define PINGS 64
+#define ROUTES 300
+#define STAMPS 60
+#define STACKMONITOR 600
+//#define HEAPMONITOR 60
+uint16_t clocktime;
+#define TESTRTIMER 0
+#if TESTRTIMER
+uint8_t rtimerflag=1;
+struct rtimer rt;
+void rtimercycle(void) {rtimerflag=1;}
+#endif
+#endif
+
+#define DEBUG 0
 #if DEBUG
 #include <stdio.h>
 #define PRINTF(...) printf(__VA_ARGS__)
-#define PRINT6ADDR(addr) PRINTF(" %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x ", ((u8_t *)addr)[0], ((u8_t *)addr)[1], ((u8_t *)addr)[2], ((u8_t *)addr)[3], ((u8_t *)addr)[4], ((u8_t *)addr)[5], ((u8_t *)addr)[6], ((u8_t *)addr)[7], ((u8_t *)addr)[8], ((u8_t *)addr)[9], ((u8_t *)addr)[10], ((u8_t *)addr)[11], ((u8_t *)addr)[12], ((u8_t *)addr)[13], ((u8_t *)addr)[14], ((u8_t *)addr)[15])
+#define PRINT6ADDR(addr) PRINTF(" %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x ", ((uint8_t *)addr)[0], ((uint8_t *)addr)[1], ((uint8_t *)addr)[2], ((uint8_t *)addr)[3], ((uint8_t *)addr)[4], ((uint8_t *)addr)[5], ((uint8_t *)addr)[6], ((uint8_t *)addr)[7], ((uint8_t *)addr)[8], ((uint8_t *)addr)[9], ((uint8_t *)addr)[10], ((uint8_t *)addr)[11], ((uint8_t *)addr)[12], ((uint8_t *)addr)[13], ((uint8_t *)addr)[14], ((uint8_t *)addr)[15])
 #define PRINTLLADDR(lladdr) PRINTF(" %02x:%02x:%02x:%02x:%02x:%02x ",(lladdr)->addr[0], (lladdr)->addr[1], (lladdr)->addr[2], (lladdr)->addr[3],(lladdr)->addr[4], (lladdr)->addr[5])
 #else
 #define PRINTF(...)
@@ -85,14 +104,6 @@
 #ifndef RIMEADDR_NBYTES
 #define RIMEADDR_NBYTES 8
 #endif
-
-#define PLATFORM_DEBUG 1
-#if PLATFORM_DEBUG
-#define PRINTF(...) printf(__VA_ARGS__)
-#else
-#define PRINTF(...)
-#endif
-
 
 #if UIP_CONF_ROUTER
 
@@ -145,7 +156,7 @@ static void
 set_gateway(void)
 {
   if(!is_gateway) {
-//    leds_on(LEDS_RED);
+    leds_on(LEDS_RED);
     printf("%d.%d: making myself the IP network gateway.\n\n",
 	   rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1]);
     printf("IPv4 address of the gateway: %d.%d.%d.%d\n\n",
@@ -175,14 +186,6 @@ SENSORS(&button_sensor);
 void
 init_lowlevel(void)
 {
-	/* led direction init */
-	set_bit(*GPIO_PAD_DIR0,8);
-	set_bit(*GPIO_PAD_DIR0,9);
-	set_bit(*GPIO_PAD_DIR0,10);
-	set_bit(*GPIO_PAD_DIR0,23);
-	set_bit(*GPIO_PAD_DIR0,24);
-	set_bit(*GPIO_PAD_DIR0,25);
-
 	/* button init */
 	/* set up kbi */
 	enable_irq_kbi(4);
@@ -196,7 +199,7 @@ init_lowlevel(void)
 	trim_xtal();
 	
 	/* uart init */
-	uart_init(INC, MOD, SAMP);
+	uart_init(BRINC, BRMOD, SAMP);
 	
 	default_vreg_init();
 
@@ -204,10 +207,6 @@ init_lowlevel(void)
 
 	set_channel(RF_CHANNEL - 11); /* channel 11 */
 	set_power(0x12); /* 0x12 is the highest, not documented */
-
-	/* control TX_ON with the radio */
-        *GPIO_FUNC_SEL2 = (0x01 << ((44-16*2)*2));
-	gpio_pad_dir_set( 1ULL << 44 );
 
 	enable_irq(CRM);
 
@@ -221,6 +220,13 @@ init_lowlevel(void)
 	*CRM_RTC_TIMEOUT = 32768 * 10; 
 #else 
 	*CRM_RTC_TIMEOUT = cal_rtc_secs * 10;
+#endif
+
+#if (USE_WDT == 1)
+	/* set the watchdog timer timeout to 1 sec */
+	cop_timeout_ms(WDT_TIMEOUT);
+	/* enable the watchdog timer */
+	CRM->COP_CNTLbits.COP_EN = 1;
 #endif
 
 	/* XXX debug */
@@ -248,34 +254,33 @@ void iab_to_eui64(rimeaddr_t *eui64, uint32_t oui, uint16_t iab, uint32_t ext) {
 	eui64->u8[1] =  0x50;
 	eui64->u8[2] =  0xc2;
 
-	/* EUI64 field */
-	eui64->u8[3] = 0xff;
-	eui64->u8[4] = 0xfe;
-
 	/* IAB */
-	eui64->u8[5] = (iab >> 4)  & 0xff;	
-	eui64->u8[6] = (iab & 0xf) << 4;
+	eui64->u8[3] = (iab >> 4)  & 0xff;
+	eui64->u8[4] = (iab << 4) &  0xf0;
 
 	/* EXT */
-	eui64->u8[6] |= ((ext >> 8) &  0xf);	
-	eui64->u8[7] =    ext       & 0xff;
+
+	eui64->u8[4] |= (ext >> 24) & 0xf;
+	eui64->u8[5] = (ext >> 16) & 0xff;
+	eui64->u8[6] = (ext >> 8)  & 0xff;
+	eui64->u8[7] =  ext        & 0xff;
 }
 
-void oui_to_eui64(rimeaddr_t *eui64, uint32_t oui, uint32_t ext) {
+void oui_to_eui64(rimeaddr_t *eui64, uint32_t oui, uint64_t ext) {
 	/* OUI */
 	eui64->u8[0] = (oui >> 16) & 0xff;
 	eui64->u8[1] = (oui >> 8)  & 0xff;
 	eui64->u8[2] =  oui        & 0xff;
 
-	/* EUI64 field */
-	eui64->u8[3] = 0xff;
-	eui64->u8[4] = 0xfe;
-
 	/* EXT */
+	eui64->u8[3] = (ext >> 32) & 0xff;
+	eui64->u8[4] = (ext >> 24) & 0xff;
 	eui64->u8[5] = (ext >> 16) & 0xff;
 	eui64->u8[6] = (ext >> 8)  & 0xff;
 	eui64->u8[7] =  ext        & 0xff;
 }
+
+unsigned short node_id = 0;
 
 void
 set_rimeaddr(rimeaddr_t *addr) 
@@ -305,7 +310,7 @@ set_rimeaddr(rimeaddr_t *addr)
 	  	iab_to_eui64(&eui64, OUI, IAB, EXT_ID);
    #else  /* ifdef EXT_ID */
 		PRINTF("address in flash blank, setting to defined IAB with a random extension.\n\r");
-		iab_to_eui64(&eui64, OUI, IAB, *MACA_RANDOM & 0xfff);
+		iab_to_eui64(&eui64, OUI, IAB, *MACA_RANDOM);
    #endif /* ifdef EXT_ID */
 
 #else  /* ifdef IAB */
@@ -315,7 +320,7 @@ set_rimeaddr(rimeaddr_t *addr)
 		oui_to_eui64(&eui64, OUI, EXT_ID);
    #else  /*ifdef EXT_ID */
 		PRINTF("address in flash blank, setting to defined OUI with a random extension.\n\r");
-		oui_to_eui64(&eui64, OUI, *MACA_RANDOM & 0xffffff);
+		oui_to_eui64(&eui64, OUI, ((*MACA_RANDOM << 32) | *MACA_RANDOM));
    #endif /*endif EXTID */
 
 #endif /* ifdef IAB */
@@ -329,6 +334,7 @@ set_rimeaddr(rimeaddr_t *addr)
 		PRINTF("loading rime address from flash.\n\r");
 	}
 
+	node_id = (addr->u8[6] << 8 | addr->u8[7]);
 	rimeaddr_set_node_addr(addr);
 }
 
@@ -342,8 +348,45 @@ main(void)
 	/* go into user mode */
 	init_lowlevel();
 
+#if STACKMONITOR
+  /* Simple stack pointer highwater monitor. Checks for magic numbers in the main
+   * loop. In conjuction with PERIODICPRINTS, never-used stack will be printed
+   * every STACKMONITOR seconds.
+   */
+{
+extern uint32_t __und_stack_top__, __sys_stack_top__;
+uint32_t p=(uint32_t)&__und_stack_top__;
+    do {
+      *(uint32_t *)p = 0x42424242;
+      p+=16;
+    } while (p<(uint32_t)&__sys_stack_top__-100); //don't overwrite our own stack
+}
+#endif
+#if HEAPMONITOR
+  /* Simple heap pointer highwater monitor. Checks for magic numbers in the main
+   * loop. In conjuction with PERIODICPRINTS, never-used heap will be printed
+   * every HEAPMONITOR seconds.
+   * This routine assumes a linear FIFO heap as used by the printf _sbrk call.
+   */
+{
+extern uint32_t __heap_start__, __heap_end__;
+uint32_t p=(uint32_t)&__heap_end__-4;
+  do {
+     *(uint32_t *)p = 0x42424242;
+	 p-=4;
+  } while (p>=(uint32_t)&__heap_start__);
+}
+#endif
+
 	/* Clock */
 	clock_init();	
+
+	/* LED driver */
+	leds_init();
+
+	/* control TX_ON with the radio */
+	GPIO->FUNC_SEL.GPIO_44 = 2;
+	GPIO->PAD_DIR.GPIO_44 = 1;
 
 	/* Process subsystem */
 	process_init();
@@ -427,6 +470,27 @@ main(void)
          RF_CHANNEL);
 #endif /* WITH_UIP6 */
 
+  *MACA_MACPANID = 0xcdab; /* this is the hardcoded contiki pan, register is PACKET order */
+  *MACA_MAC16ADDR = 0xffff; /* short addressing isn't used, set this to 0xffff for now */
+
+  *MACA_MAC64HI =
+	  addr.u8[0] << 24 |
+	  addr.u8[1] << 16 |
+	  addr.u8[2] << 8 |
+	  addr.u8[3];
+  *MACA_MAC64LO =
+	  addr.u8[4] << 24 |
+	  addr.u8[5] << 16 |
+	  addr.u8[6] << 8 |
+	  addr.u8[7];
+  PRINTF("setting panid 0x%04x\n\r", *MACA_MACPANID);
+  PRINTF("setting short mac 0x%04x\n\r", *MACA_MAC16ADDR);
+  PRINTF("setting long mac 0x%08x_%08x\n\r", *MACA_MAC64HI, *MACA_MAC64LO);
+
+#if MACA_AUTOACK
+  set_prm_mode(AUTOACK);
+#endif
+
 #if PROFILE_CONF_ON
   profile_init();
 #endif /* PROFILE_CONF_ON */
@@ -474,7 +538,10 @@ main(void)
   while(1) {
 	  check_maca();
 
-	  /* TODO: replace this with a uart rx interrupt */
+#if (USE_WDT == 1)
+	  cop_service();
+#endif
+
 	  if(uart1_input_handler != NULL) {
 		  if(uart1_can_get()) {
 			  uart1_input_handler(uart1_getc());
@@ -482,6 +549,124 @@ main(void)
 	  }
 	         
 	  process_run();
+
+#if PERIODICPRINTS
+#if TESTRTIMER
+/* Timeout can be increased up to 8 seconds maximum.
+ * A one second cycle is convenient for triggering the various debug printouts.
+ * The triggers are staggered to avoid printing everything at once.
+ */
+    if (rtimerflag) {
+      rtimer_set(&rt, RTIMER_NOW()+ RTIMER_ARCH_SECOND*1UL, 1,(void *) rtimercycle, NULL);
+      rtimerflag=0;
+#else
+  if (clocktime!=clock_seconds()) {
+     clocktime=clock_seconds();
+#endif
+
+#if STAMPS
+if ((clocktime%STAMPS)==0) {
+#if ENERGEST_CONF_ON
+#include "lib/print-stats.h"
+	print_stats();
+#elif RADIOSTATS
+extern volatile unsigned long radioontime;
+  printf("\r%u(%u)s ",clocktime,radioontime);
+#else
+  printf("%us\n",clocktime);
+#endif
+
+}
+#endif
+#if TESTRTIMER
+      clocktime+=1;
+#endif
+
+#if PINGS && UIP_CONF_IPV6
+extern void raven_ping6(void); 
+if ((clocktime%PINGS)==1) {
+  printf("**Ping\n");
+  raven_ping6();
+}
+#endif
+
+#if ROUTES && UIP_CONF_IPV6
+if ((clocktime%ROUTES)==2) {
+      
+extern uip_ds6_nbr_t uip_ds6_nbr_cache[];
+extern uip_ds6_route_t uip_ds6_routing_table[];
+extern uip_ds6_netif_t uip_ds6_if;
+
+  uint8_t i,j;
+  printf("\nAddresses [%u max]\n",UIP_DS6_ADDR_NB);
+  for (i=0;i<UIP_DS6_ADDR_NB;i++) {
+    if (uip_ds6_if.addr_list[i].isused) {
+      uip_debug_ipaddr_print(&uip_ds6_if.addr_list[i].ipaddr);
+      printf("\n");
+    }
+  }
+  printf("\nNeighbors [%u max]\n",UIP_DS6_NBR_NB);
+  for(i = 0,j=1; i < UIP_DS6_NBR_NB; i++) {
+    if(uip_ds6_nbr_cache[i].isused) {
+      uip_debug_ipaddr_print(&uip_ds6_nbr_cache[i].ipaddr);
+      printf("\n");
+      j=0;
+    }
+  }
+  if (j) printf("  <none>");
+  printf("\nRoutes [%u max]\n",UIP_DS6_ROUTE_NB);
+  for(i = 0,j=1; i < UIP_DS6_ROUTE_NB; i++) {
+    if(uip_ds6_routing_table[i].isused) {
+      uip_debug_ipaddr_print(&uip_ds6_routing_table[i].ipaddr);
+      printf("/%u (via ", uip_ds6_routing_table[i].length);
+      uip_debug_ipaddr_print(&uip_ds6_routing_table[i].nexthop);
+ //     if(uip_ds6_routing_table[i].state.lifetime < 600) {
+        printf(") %lus\n", uip_ds6_routing_table[i].state.lifetime);
+ //     } else {
+ //       printf(")\n");
+ //     }
+      j=0;
+    }
+  }
+  if (j) printf("  <none>");
+  printf("\n---------\n");
+}
+#endif
+
+#if STACKMONITOR
+if ((clocktime%STACKMONITOR)==3) {
+extern uint32_t __und_stack_top__, __sys_stack_top__;
+uint32_t p=(uint32_t)&__und_stack_top__;
+  do {
+    if (*(uint32_t *)p != 0x42424242) {
+      printf("Never-Used stack > %d bytes\n",p-(uint32_t)&__und_stack_top__);
+      break;
+    }
+    p+=16;
+  } while (p<(uint32_t)&__sys_stack_top__-100);
+}
+#endif
+#if HEAPMONITOR
+if ((clocktime%HEAPMONITOR)==4) {
+extern uint32_t __heap_start__, __heap_end__;
+uint32_t p=(uint32_t)&__heap_end__-4;
+  do {
+    if (*(uint32_t *)p != 0x42424242) {
+      break;
+    }
+    p-=4;
+  } while (p>=(uint32_t)&__heap_start__);
+  printf("Never-used heap >= %d bytes\n",(uint32_t)&__heap_end__-p-4);
+#if 0
+#include <stdlib.h>
+char *ptr=malloc(1);  //allocates 16 bytes from the heap
+printf("********Got pointer %x\n",ptr);
+#endif
+}
+#endif
+
+    }
+#endif /* PERIODICPRINTS */
   }
   
   return 0;

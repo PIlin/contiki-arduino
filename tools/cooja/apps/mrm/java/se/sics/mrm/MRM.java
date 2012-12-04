@@ -43,13 +43,19 @@ import org.jdom.Element;
 import se.sics.cooja.ClassDescription;
 import se.sics.cooja.RadioConnection;
 import se.sics.cooja.Simulation;
+import se.sics.cooja.interfaces.DirectionalAntennaRadio;
+import se.sics.cooja.interfaces.NoiseSourceRadio;
+import se.sics.cooja.interfaces.NoiseSourceRadio.NoiseLevelListener;
 import se.sics.cooja.interfaces.Position;
 import se.sics.cooja.interfaces.Radio;
+import se.sics.cooja.plugins.Visualizer;
 import se.sics.cooja.radiomediums.AbstractRadioMedium;
+import se.sics.mrm.ChannelModel.Parameter;
+import se.sics.mrm.ChannelModel.RadioPair;
+import se.sics.mrm.ChannelModel.TxPair;
 
 /**
- * This is the main class of the COOJA Multi-path Ray-tracing Medium (MRM)
- * package.
+ * Multi-path Ray-tracing radio medium (MRM).
  *
  * MRM is an alternative to the simpler radio mediums available in
  * COOJA. It is packet based and uses a 2D ray-tracing approach to approximate
@@ -57,22 +63,34 @@ import se.sics.cooja.radiomediums.AbstractRadioMedium;
  * ray-tracing only supports reflections and refractions through homogeneous
  * obstacles.
  *
- * MRM registers two plugins: a plugin for visualizing the radio
- * environments, and a plugin for configuring the radio medium parameters.
+ * MRM provides two plugins: one for visualizing the radio environment,
+ * and one for configuring the radio medium parameters.
  *
  * Future work includes adding support for diffraction and scattering.
  *
+ * MRM supports both noise source radios and directional antenna radios.
+ * 
+ * @see DirectionalAntennaRadio
+ * @see NoiseSourceRadio
  * @author Fredrik Osterlind
  */
 @ClassDescription("Multi-path Ray-tracer Medium (MRM)")
 public class MRM extends AbstractRadioMedium {
   private static Logger logger = Logger.getLogger(MRM.class);
 
+  public final static boolean WITH_NOISE = true; /* NoiseSourceRadio */
+  public final static boolean WITH_DIRECTIONAL = true; /* DirectionalAntennaRadio */
+
+  private Observer channelModelObserver = null;
+
+  private boolean WITH_CAPTURE_EFFECT;
+  private double CAPTURE_EFFECT_THRESHOLD;
+  private double CAPTURE_EFFECT_PREAMBLE_DURATION;
+  
+  private Simulation sim;
+  private Random random = null;
   private ChannelModel currentChannelModel = null;
 
-  private Random random = null;
-
-  private Simulation sim;
   /**
    * Notifies observers when this radio medium has changed settings.
    */
@@ -83,110 +101,184 @@ public class MRM extends AbstractRadioMedium {
    */
   public MRM(Simulation simulation) {
     super(simulation);
+
     sim = simulation;
-    
     random = simulation.getRandomGenerator();
-
-    // Create the channel model
-    currentChannelModel = new ChannelModel();
-
-  	/* Register plugins */
+    currentChannelModel = new ChannelModel(sim);
+    
+    WITH_CAPTURE_EFFECT = currentChannelModel.getParameterBooleanValue(ChannelModel.Parameter.captureEffect);
+    CAPTURE_EFFECT_THRESHOLD = currentChannelModel.getParameterDoubleValue(ChannelModel.Parameter.captureEffectSignalTreshold);
+    CAPTURE_EFFECT_PREAMBLE_DURATION = currentChannelModel.getParameterDoubleValue(ChannelModel.Parameter.captureEffectPreambleDuration);
+   
+    currentChannelModel.addSettingsObserver(channelModelObserver = new Observer() {
+      public void update(Observable o, Object arg) {
+        WITH_CAPTURE_EFFECT = currentChannelModel.getParameterBooleanValue(ChannelModel.Parameter.captureEffect);
+        CAPTURE_EFFECT_THRESHOLD = currentChannelModel.getParameterDoubleValue(ChannelModel.Parameter.captureEffectSignalTreshold);
+        CAPTURE_EFFECT_PREAMBLE_DURATION = currentChannelModel.getParameterDoubleValue(ChannelModel.Parameter.captureEffectPreambleDuration);
+      }
+    });
+    
+    /* Register plugins */
     sim.getGUI().registerPlugin(AreaViewer.class);
     sim.getGUI().registerPlugin(FormulaViewer.class);
+    Visualizer.registerVisualizerSkin(MRMVisualizerSkin.class);
   }
 
   public void removed() {
-  	super.removed();
+    super.removed();
 
-  	/* Unregister plugins */
+    /* Unregister plugins */
     sim.getGUI().unregisterPlugin(AreaViewer.class);
     sim.getGUI().unregisterPlugin(FormulaViewer.class);
+    Visualizer.unregisterVisualizerSkin(MRMVisualizerSkin.class);
+
+    currentChannelModel.deleteSettingsObserver(channelModelObserver);
   }
   
-  public MRMRadioConnection createConnections(Radio sendingRadio) {
-    Position sendingPosition = sendingRadio.getPosition();
-    MRMRadioConnection newConnection = new MRMRadioConnection(sendingRadio);
+  private NoiseLevelListener noiseListener = new NoiseLevelListener() {
+        public void noiseLevelChanged(NoiseSourceRadio radio, int signal) {
+                updateSignalStrengths();
+        };
+  };
+  public void registerRadioInterface(Radio radio, Simulation sim) {
+        super.registerRadioInterface(radio, sim);
+        
+        if (WITH_NOISE && radio instanceof NoiseSourceRadio) {
+                ((NoiseSourceRadio)radio).addNoiseLevelListener(noiseListener);
+        }
+  }
+  public void unregisterRadioInterface(Radio radio, Simulation sim) {
+        super.unregisterRadioInterface(radio, sim);
 
-    // Loop through all radios
-    for (Radio listeningRadio: getRegisteredRadios()) {
-      // Ignore sending radio and radios on different channels
-      if (sendingRadio == listeningRadio) {
+        if (WITH_NOISE && radio instanceof NoiseSourceRadio) {
+                ((NoiseSourceRadio)radio).removeNoiseLevelListener(noiseListener);
+        }
+  }
+  
+  public MRMRadioConnection createConnections(final Radio sender) {
+    MRMRadioConnection newConnection = new MRMRadioConnection(sender);
+    final Position senderPos = sender.getPosition();
+
+    /* TODO Cache potential destination in DGRM */
+    /* Loop through all potential destinations */
+    for (Radio recv: getRegisteredRadios()) {
+      if (sender == recv) {
         continue;
       }
-      if (sendingRadio.getChannel() >= 0 &&
-          listeningRadio.getChannel() >= 0 &&
-          sendingRadio.getChannel() != listeningRadio.getChannel()) {
+
+      /* Fail if radios are on different (but configured) channels */ 
+      if (sender.getChannel() >= 0 &&
+          recv.getChannel() >= 0 &&
+          sender.getChannel() != recv.getChannel()) {
         continue;
       }
+      final Radio recvFinal = recv;
 
-      /* TODO Use DGRM to cache link information.
-       * (No need to loop over all receivers) */
-      
-      double listeningPositionX = listeningRadio.getPosition().getXCoordinate();
-      double listeningPositionY = listeningRadio.getPosition().getYCoordinate();
-
-      // Calculate probability of reception of listening radio
+      /* Calculate receive probability */
+      TxPair txPair = new RadioPair() {
+        public Radio getFromRadio() {
+          return sender;
+        }
+        public Radio getToRadio() {
+          return recvFinal;
+        }
+      };
       double[] probData = currentChannelModel.getProbability(
-          sendingPosition.getXCoordinate(),
-          sendingPosition.getYCoordinate(),
-          listeningPositionX,
-          listeningPositionY,
-          -Double.MAX_VALUE
+          txPair,
+          -Double.MAX_VALUE /* TODO Include interference */
       );
 
-      //logger.info("Probability of reception is " + probData[0]);
-      //logger.info("Signal strength at destination is " + probData[1]);
-      if (random.nextFloat() < probData[0]) {
-        // Check if this radio is able to receive transmission
-        if (listeningRadio.isInterfered()) {
-          // Keep interfering radio
-          newConnection.addInterfered(listeningRadio, probData[1]);
+      double recvProb = probData[0];
+      double recvSignalStrength = probData[1];
+      if (recvProb == 1.0 || random.nextDouble() < recvProb) {
+        /* Yes, the receiver *may* receive this packet (it's strong enough) */
+        if (!recv.isRadioOn()) {
+          newConnection.addInterfered(recv);
+          recv.interfereAnyReception();
+        } else if (recv.isInterfered()) {
+          if (WITH_CAPTURE_EFFECT) {
+            /* XXX TODO Implement me:
+             * If the new transmission is both stronger and the SFD has not
+             * been received by the weaker transmission, then this new
+             * transmission should be received.
+             *
+             * When this is implemented, also implement
+             * RadioConnection.java:getReceptionStartTime()
+             */
 
-        } else if (listeningRadio.isReceiving()) {
-          newConnection.addInterfered(listeningRadio, probData[1]);
+            /* Was interfered: keep interfering */
+            newConnection.addInterfered(recv, recvSignalStrength);
+          } else {
+            /* Was interfered: keep interfering */
+            newConnection.addInterfered(recv, recvSignalStrength);
+          }
+        } else if (recv.isTransmitting()) {
+          newConnection.addInterfered(recv, recvSignalStrength);
+        } else if (recv.isReceiving()) {
+          /* Was already receiving: start interfering.
+           * Assuming no continuous preambles checking */
 
-          // Start interfering radio
-          listeningRadio.interfereAnyReception();
+          if (!WITH_CAPTURE_EFFECT) {
+            newConnection.addInterfered(recv, recvSignalStrength);
+            recv.interfereAnyReception();
 
-          // Update connection that is transmitting to this radio
-          MRMRadioConnection existingConn = null;
-          for (RadioConnection conn : getActiveConnections()) {
-            for (Radio dstRadio : ((MRMRadioConnection) conn).getDestinations()) {
-              if (dstRadio == listeningRadio) {
-                existingConn = (MRMRadioConnection) conn;
-                break;
+            /* Interfere receiver in all other active radio connections */
+            for (RadioConnection conn : getActiveConnections()) {
+              if (conn.isDestination(recv)) {
+                conn.addInterfered(recv);
+              }
+            }
+          } else {
+            /* CAPTURE EFFECT */
+            double currSignal = recv.getCurrentSignalStrength();
+            /* Capture effect: recv-radio is already receiving.
+             * Are we strong enough to interfere? */
+
+            if (recvSignalStrength < currSignal - CAPTURE_EFFECT_THRESHOLD /* config */) {
+              /* No, we are too weak */
+            } else {
+              /* New signal is strong enough to either interfere with ongoing transmission,
+               * or to be received/captured */
+              long startTime = newConnection.getReceptionStartTime();
+              boolean interfering = (sim.getSimulationTime()-startTime) >= CAPTURE_EFFECT_PREAMBLE_DURATION; /* us */
+              if (interfering) {
+                newConnection.addInterfered(recv, recvSignalStrength);
+                recv.interfereAnyReception();
+
+                /* Interfere receiver in all other active radio connections */
+                for (RadioConnection conn : getActiveConnections()) {
+                  if (conn.isDestination(recv)) {
+                    conn.addInterfered(recv);
+                  }
+                }
+              } else {
+                /* XXX Warning: removing destination from other connections */
+                for (RadioConnection conn : getActiveConnections()) {
+                  if (conn.isDestination(recv)) {
+                    conn.removeDestination(recv);
+                  }
+                }
+
+                /* Success: radio starts receiving */
+                newConnection.addDestination(recv, recvSignalStrength);
               }
             }
           }
-          if (existingConn != null) {
-            /* Flag radio as interfered */
-            existingConn.addInterfered(listeningRadio);
-            listeningRadio.interfereAnyReception();
-          }
+
         } else {
-          // Radio OK to receive
-          //logger.info("OK, creating connection and starting to transmit");
-          newConnection.addDestination(listeningRadio, probData[1]);
+          /* Success: radio starts receiving */
+          newConnection.addDestination(recv, recvSignalStrength);
         }
-      } else if (probData[1] > currentChannelModel.getParameterDoubleValue("bg_noise_mean")) {
-        // Interfere radio
-        newConnection.addInterfered(listeningRadio, probData[1]);
-        listeningRadio.interfereAnyReception();
+      } else if (recvSignalStrength > currentChannelModel.getParameterDoubleValue(Parameter.bg_noise_mean)) {
+        /* The incoming signal is strong, but strong enough to interfere? */
 
-        // TODO Radios always get interfered right now, should recalculate probability
-//      if (maxInterferenceSignalStrength + SOME_RELEVANT_LIMIT > transmissionSignalStrength) {
-//      // Recalculating probability of delivery
-//      double[] probData = currentChannelModel.getProbability(
-//          mySource.source.position.getXCoordinate(),
-//          mySource.source.position.getYCoordinate(),
-//          myDestination.position.getXCoordinate(),
-//          myDestination.position.getYCoordinate(),
-//          maxInterferenceSignalStrength);
-//
-//      if (new Random().nextFloat() >= probData[0]) {
-//        return true;
-//      }
-
+        if (!WITH_CAPTURE_EFFECT) {
+                newConnection.addInterfered(recv, recvSignalStrength);
+                recv.interfereAnyReception();
+        } else {
+                /* TODO Implement new type: newConnection.addNoise()?
+         * Currently, this connection will never disturb this radio... */
+        }
       }
 
     }
@@ -195,57 +287,107 @@ public class MRM extends AbstractRadioMedium {
   }
 
   public void updateSignalStrengths() {
-    // // Save old signal strengths
-    // double[] oldSignalStrengths = new double[registeredRadios.size()];
-    // for (int i = 0; i < registeredRadios.size(); i++) {
-    // oldSignalStrengths[i] = registeredRadios.get(i)
-    // .getCurrentSignalStrength();
-    // }
 
-    // Reset signal strength on all radios
+    /* Reset: Background noise */
+        double background = 
+                currentChannelModel.getParameterDoubleValue((Parameter.bg_noise_mean));
     for (Radio radio : getRegisteredRadios()) {
-      radio.setCurrentSignalStrength(currentChannelModel.getParameterDoubleValue(("bg_noise_mean")));
+      radio.setCurrentSignalStrength(background);
     }
 
-    // Set signal strength on all OK transmissions
-    for (RadioConnection conn : getActiveConnections()) {
-//    ((MRMRadioConnection) conn).getSource().setCurrentSignalStrength(12345); // TODO Set signal strength on source?
+    /* Active radio connections */
+    RadioConnection[] conns = getActiveConnections();
+    for (RadioConnection conn : conns) {
       for (Radio dstRadio : ((MRMRadioConnection) conn).getDestinations()) {
         double signalStrength = ((MRMRadioConnection) conn).getDestinationSignalStrength(dstRadio);
-        if (signalStrength > dstRadio.getCurrentSignalStrength()) {
+        if (conn.getSource().getChannel() >= 0 &&
+            dstRadio.getChannel() >= 0 &&
+            conn.getSource().getChannel() != dstRadio.getChannel()) {
+          continue;
+        }
+        if (dstRadio.getCurrentSignalStrength() < signalStrength) {
           dstRadio.setCurrentSignalStrength(signalStrength);
         }
       }
     }
 
-    // Set signal strength on all interferences
-    for (RadioConnection conn : getActiveConnections()) {
-      for (Radio interferedRadio : ((MRMRadioConnection) conn).getInterfered()) {
-        double signalStrength = ((MRMRadioConnection) conn).getInterferenceSignalStrength(interferedRadio);
-        if (signalStrength > interferedRadio.getCurrentSignalStrength()) {
-          interferedRadio.setCurrentSignalStrength(signalStrength);
+    /* Interfering/colliding radio connections */
+    for (RadioConnection conn : conns) {
+      for (Radio intfRadio : ((MRMRadioConnection) conn).getInterfered()) {
+        double signalStrength = ((MRMRadioConnection) conn).getInterferenceSignalStrength(intfRadio);
+        if (intfRadio.getCurrentSignalStrength() < signalStrength) {
+                intfRadio.setCurrentSignalStrength(signalStrength);
+        }
+        if (conn.getSource().getChannel() >= 0 &&
+            intfRadio.getChannel() >= 0 &&
+            conn.getSource().getChannel() != intfRadio.getChannel()) {
+          continue;
         }
 
-        if (!interferedRadio.isInterfered()) {
-          // Set to interfered again
-          interferedRadio.interfereAnyReception();
+        if (!intfRadio.isInterfered()) {
+          /*logger.warn("Radio was not interfered: " + intfRadio);*/
+                intfRadio.interfereAnyReception();
         }
       }
     }
 
-    // // Fetch new signal strengths
-    // double[] newSignalStrengths = new double[registeredRadios.size()];
-    // for (int i = 0; i < registeredRadios.size(); i++) {
-    // newSignalStrengths[i] = registeredRadios.get(i)
-    // .getCurrentSignalStrength();
-    // }
-    //
-    // // Compare new and old signal strengths
-    // for (int i = 0; i < registeredRadios.size(); i++) {
-    // if (oldSignalStrengths[i] != newSignalStrengths[i])
-    // logger.warn("Signal strengths changed on radio[" + i + "]: "
-    // + oldSignalStrengths[i] + " -> " + newSignalStrengths[i]);
-    // }
+    /* Check for noise sources */
+    if (!WITH_NOISE) return;
+    for (Radio noiseRadio: getRegisteredRadios()) {
+      if (!(noiseRadio instanceof NoiseSourceRadio)) {
+        continue;
+      }
+      final Radio fromRadio = noiseRadio;
+      NoiseSourceRadio radio = (NoiseSourceRadio) noiseRadio;
+      int signalStrength = radio.getNoiseLevel();
+      if (signalStrength == Integer.MIN_VALUE) {
+        continue;
+      }
+
+      /* Calculate how noise source affects surrounding radios */
+      for (Radio affectedRadio : getRegisteredRadios()) {
+        if (noiseRadio == affectedRadio) {
+          continue;
+        }
+
+        /* Update noise levels */
+        final Radio toRadio = affectedRadio;
+        TxPair txPair = new RadioPair() {
+          public Radio getFromRadio() {
+            return fromRadio;
+          }
+          public Radio getToRadio() {
+            return toRadio;
+          }
+        };
+        double[] signalMeanVar = currentChannelModel.getReceivedSignalStrength(txPair);
+        double signal = signalMeanVar[0];
+        if (signal < background) {
+          continue;
+        }
+
+        /* TODO Additive signals strengths? */
+        /* TODO XXX Consider radio channels */
+        /* TODO XXX Potentially interfere even when signal is weaker (~3dB)...
+         * (we may alternatively just use the getSINR method...) */
+        if (affectedRadio.getCurrentSignalStrength() < signal) {
+          affectedRadio.setCurrentSignalStrength(signal);
+
+          /* TODO Interfere with radio connections? */
+          if (affectedRadio.isReceiving() && !affectedRadio.isInterfered()) {
+            for (RadioConnection conn : conns) {
+              if (conn.isDestination(affectedRadio)) {
+                /* Intefere with current reception, mark radio as interfered */
+                conn.addInterfered(affectedRadio);
+                if (!affectedRadio.isInterfered()) {
+                  affectedRadio.interfereAnyReception();
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   public Collection<Element> getConfigXML() {
@@ -280,19 +422,10 @@ public class MRM extends AbstractRadioMedium {
   }
 
   /**
-   * Returns position of given radio.
-   *
-   * @param radio Registered radio
-   * @return Position of given radio
-   */
-  public Position getRadioPosition(Radio radio) {
-    return radio.getPosition();
-  }
-
-  /**
    * @return Number of registered radios.
    */
   public int getRegisteredRadioCount() {
+        /* TODO Expensive operation */
     return getRegisteredRadios().length;
   }
 
@@ -341,10 +474,16 @@ public class MRM extends AbstractRadioMedium {
     }
 
     public double getDestinationSignalStrength(Radio radio) {
+        if (signalStrengths.get(radio) == null) {
+                return Double.MIN_VALUE;
+        }
       return signalStrengths.get(radio);
     }
 
     public double getInterferenceSignalStrength(Radio radio) {
+        if (signalStrengths.get(radio) == null) {
+                return Double.MIN_VALUE;
+        }
       return signalStrengths.get(radio);
     }
   }

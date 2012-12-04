@@ -9,6 +9,7 @@
  *	Mike Vidales mavida404@gmail.com
  *	Kevin Brown kbrown3@uccs.edu
  *	Nate Bohlmann nate@elfwerks.com
+ *  David Kopf dak664@embarqmail.com
  *
  *   All rights reserved.
  *
@@ -45,7 +46,6 @@
  *  \file
  *  \brief This file contains radio driver code.
  *
- *   $Id: rf230bb.h,v 1.6 2010/12/15 16:50:44 dak664 Exp $
  */
 
 #ifndef RADIO_H
@@ -53,18 +53,29 @@
 /*============================ INCLUDE =======================================*/
 #include <stdint.h>
 #include <stdbool.h>
-#include "at86rf230_registermap.h"
 #include "hal.h"
+#if defined(__AVR_ATmega128RFA1__)
+#include "atmega128rfa1_registermap.h"
+#else
+#include "at86rf230_registermap.h"
+#endif
+
 
 /*============================ MACROS ========================================*/
 #define SUPPORTED_PART_NUMBER                   ( 2 )
 #define RF230_REVA                              ( 1 )
 #define RF230_REVB                              ( 2 )
 #define SUPPORTED_MANUFACTURER_ID               ( 31 )
+
+#if defined(__AVR_ATmega128RFA1__)
+#define RF230_SUPPORTED_INTERRUPT_MASK          ( 0xFF )
+#else
 /* RF230 does not support RX_START interrupts in extended mode, but it seems harmless to always enable it. */
 /* In non-extended mode this allows RX_START to sample the RF rssi at the end of the preamble */
-//#define RF230_SUPPORTED_INTERRUPT_MASK        ( 0x0C )  //disable RX_START
-#define RF230_SUPPORTED_INTERRUPT_MASK          ( 0x0F )
+//#define RF230_SUPPORTED_INTERRUPT_MASK        ( 0x08 )  //enable trx end only
+//#define RF230_SUPPORTED_INTERRUPT_MASK          ( 0x0F ) //disable bat low, trx underrun
+#define RF230_SUPPORTED_INTERRUPT_MASK          ( 0x0C )  //disable bat low, trx underrun, pll lock/unlock
+#endif
 
 #define RF230_MIN_CHANNEL                       ( 11 )
 #define RF230_MAX_CHANNEL                       ( 26 )
@@ -155,7 +166,8 @@ typedef enum{
  *
  */
 typedef enum{
-    CCA_ED                    = 0,    /**< Use energy detection above threshold mode. */
+//    CCA_ED                   = 0,    /**< Use energy detection above threshold mode. */ conflicts with atmega128rfa1 mcu definition
+    CCA_ENERGY_DETECT         = 0,    /**< Use energy detection above threshold mode. */
     CCA_CARRIER_SENSE         = 1,    /**< Use carrier sense mode. */
     CCA_CARRIER_SENSE_WITH_ED = 2     /**< Use a combination of both energy detection and carrier sense. */
 }radio_cca_mode_t;
@@ -196,6 +208,8 @@ typedef void (*radio_rx_callback) (uint16_t data);
 const struct radio_driver rf230_driver;
 
 int rf230_init(void);
+void rf230_warm_reset(void);
+void rf230_start_sneeze(void);
 //int rf230_on(void);
 //int rf230_off(void);
 void rf230_set_channel(uint8_t channel);
@@ -208,8 +222,7 @@ uint8_t rf230_get_txpower(void);
 void rf230_set_promiscuous_mode(bool isPromiscuous);
 bool rf230_is_ready_to_send();
 
-extern signed char rf230_last_rssi;
-extern uint8_t rf230_last_correlation;
+extern uint8_t rf230_last_correlation,rf230_last_rssi,rf230_smallest_rssi;
 
 uint8_t rf230_get_raw_rssi(void);
 

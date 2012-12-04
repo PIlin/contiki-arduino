@@ -52,7 +52,7 @@ int snprintf(char *str, size_t size, const char *format, ...);
 
 /*---------------------------------------------------------------------------*/
 #define DATALEN 90
-#define MAX_RETRIES 4
+#define MAX_RETRIES 8
 
 #define CONTINUE_EVENT 128
 
@@ -146,7 +146,7 @@ print_remote_stats(struct stats *s)
 {
   unsigned long total_time;
   
-  printf("%d 1 %d %d %d %u %lu %lu %lu %lu %lu %lu # for automatic processing\n",
+  printf("%d 1 %d %d %d %lu %lu %lu %lu %lu %lu %lu # for automatic processing\n",
 	 current_type,
 	 s->sent, s->received, s->timedout,
 	 s->end - s->start,
@@ -173,7 +173,7 @@ print_local_stats(struct stats *s)
 {
   unsigned long total_time;
   
-  printf("%d 0 %d %d %d %u %lu %lu %lu %lu %lu %lu # for automatic processing\n",
+  printf("%d 0 %d %d %d %lu %lu %lu %lu %lu %lu %lu # for automatic processing\n",
 	 current_type, 
 	 s->sent, s->received, s->timedout,
 	 s->end - s->start,
@@ -185,12 +185,12 @@ print_local_stats(struct stats *s)
 
   printf("Local node statistics:\n");
  
-  printf("  Total transfer time:       %d.%d seconds, %d.%02d packets/second\n",
+  printf("  Total transfer time:       %lu.%02lu seconds, %lu.%02lu packets/second\n",
 	 (s->end - s->start) / CLOCK_SECOND,
 	 ((10 * (s->end - s->start)) / CLOCK_SECOND) % 10,
-	 CLOCK_SECOND * s->sent / (s->end - s->start),
-	 (100 * CLOCK_SECOND * s->sent / (s->end - s->start)) % 100);
-  
+	 ((1UL * CLOCK_SECOND * s->sent) / (s->end - s->start)),
+	 (((100UL * CLOCK_SECOND * s->sent) / (s->end - s->start)) % 100));
+ 
   printf("  Average round-trip-time:   %lu ms (%lu + %lu)\n",
 	 (1000 * (s->total_rx_latency + s->total_tx_latency) / s->received) /
 	 RTIMER_ARCH_SECOND,
@@ -450,7 +450,7 @@ recv_ctrl(struct runicast_conn *c, const rimeaddr_t *from, uint8_t seqno)
 const static struct runicast_callbacks runicast_callbacks =
   { recv_ctrl, sent_ctrl, timedout_ctrl };
 /*---------------------------------------------------------------------------*/
-static void
+static int
 send_ctrl_command(const rimeaddr_t *to, uint8_t command)
 {
   struct ctrl_msg *msg;
@@ -458,7 +458,7 @@ send_ctrl_command(const rimeaddr_t *to, uint8_t command)
   packetbuf_set_datalen(sizeof(struct ctrl_msg));
   msg = packetbuf_dataptr();
   msg->command = command;
-  runicast_send(&ctrl, to, MAX_RETRIES);
+  return runicast_send(&ctrl, to, MAX_RETRIES);
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -589,7 +589,9 @@ PROCESS_THREAD(shell_netperf_process, ev, data)
     shell_output_str(&netperf_command, "-------- Broadcast --------", "");
     
     shell_output_str(&netperf_command, "Contacting ", recvstr);
-    send_ctrl_command(&receiver, CTRL_COMMAND_CLEAR);
+    while(!send_ctrl_command(&receiver, CTRL_COMMAND_CLEAR)) {
+      PROCESS_PAUSE();
+    }
     PROCESS_YIELD_UNTIL(ev == CONTINUE_EVENT);
     
     shell_output_str(&netperf_command, "Measuring broadcast performance to ", recvstr);
@@ -604,7 +606,9 @@ PROCESS_THREAD(shell_netperf_process, ev, data)
     }
     
     shell_output_str(&netperf_command, "Requesting statistics from ", recvstr);
-    send_ctrl_command(&receiver, CTRL_COMMAND_STATS);
+    while(!send_ctrl_command(&receiver, CTRL_COMMAND_STATS)) {
+      PROCESS_PAUSE();
+    }
     PROCESS_YIELD_UNTIL(ev == CONTINUE_EVENT);
     
     /* Wait for reply */
@@ -619,7 +623,9 @@ PROCESS_THREAD(shell_netperf_process, ev, data)
     shell_output_str(&netperf_command, "-------- Unicast one-way --------", "");
     
     shell_output_str(&netperf_command, "Contacting ", recvstr);
-    send_ctrl_command(&receiver, CTRL_COMMAND_CLEAR);
+    while(!send_ctrl_command(&receiver, CTRL_COMMAND_CLEAR)) {
+      PROCESS_PAUSE();
+    }
     PROCESS_YIELD_UNTIL(ev == CONTINUE_EVENT);
     
     shell_output_str(&netperf_command, "Measuring unicast performance to ", recvstr);
@@ -635,7 +641,9 @@ PROCESS_THREAD(shell_netperf_process, ev, data)
     }
     
     shell_output_str(&netperf_command, "Requesting statistics from ", recvstr);
-    send_ctrl_command(&receiver, CTRL_COMMAND_STATS);
+    while(!send_ctrl_command(&receiver, CTRL_COMMAND_STATS)) {
+      PROCESS_PAUSE();
+    }
     PROCESS_YIELD_UNTIL(ev == CONTINUE_EVENT);
     
     /* Wait for reply */
@@ -649,7 +657,9 @@ PROCESS_THREAD(shell_netperf_process, ev, data)
     shell_output_str(&netperf_command, "-------- Unicast ping-pong--------", "");
     
     shell_output_str(&netperf_command, "Contacting ", recvstr);
-    send_ctrl_command(&receiver, CTRL_COMMAND_CLEAR);
+    while(!send_ctrl_command(&receiver, CTRL_COMMAND_CLEAR)) {
+      PROCESS_PAUSE();
+    }
     PROCESS_YIELD_UNTIL(ev == CONTINUE_EVENT);
     
     shell_output_str(&netperf_command, "Measuring two-way unicast performance to ", recvstr);
@@ -658,6 +668,7 @@ PROCESS_THREAD(shell_netperf_process, ev, data)
     
     for(i = 0; i < num_packets; ++i) {
       if(construct_next_echo()) {
+        
 	unicast_send(&unicast, &receiver);
 	stats.sent++;
       }
@@ -666,7 +677,9 @@ PROCESS_THREAD(shell_netperf_process, ev, data)
     }
     
     shell_output_str(&netperf_command, "Requesting statistics from ", recvstr);
-    send_ctrl_command(&receiver, CTRL_COMMAND_STATS);
+    while(!send_ctrl_command(&receiver, CTRL_COMMAND_STATS)) {
+      PROCESS_PAUSE();
+    }
     PROCESS_YIELD_UNTIL(ev == CONTINUE_EVENT);
     
     /* Wait for reply */
@@ -680,7 +693,9 @@ PROCESS_THREAD(shell_netperf_process, ev, data)
     shell_output_str(&netperf_command, "-------- Unicast stream ping-pong--------", "");
     
     shell_output_str(&netperf_command, "Contacting ", recvstr);
-    send_ctrl_command(&receiver, CTRL_COMMAND_CLEAR);
+    while(!send_ctrl_command(&receiver, CTRL_COMMAND_CLEAR)) {
+      PROCESS_PAUSE();
+    }
     PROCESS_YIELD_UNTIL(ev == CONTINUE_EVENT);
     
     shell_output_str(&netperf_command, "Measuring two-way unicast stream performance to ", recvstr);
@@ -697,7 +712,9 @@ PROCESS_THREAD(shell_netperf_process, ev, data)
     }
     
     shell_output_str(&netperf_command, "Requesting statistics from ", recvstr);
-    send_ctrl_command(&receiver, CTRL_COMMAND_STATS);
+    while(!send_ctrl_command(&receiver, CTRL_COMMAND_STATS)) {
+      PROCESS_PAUSE();
+    }
     PROCESS_YIELD_UNTIL(ev == CONTINUE_EVENT);
     
     /* Wait for reply */

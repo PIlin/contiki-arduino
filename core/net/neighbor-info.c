@@ -39,6 +39,8 @@
 
 #include "net/neighbor-info.h"
 #include "net/neighbor-attr.h"
+#include "net/uip-ds6.h"
+#include "net/uip-nd6.h"
 
 #define DEBUG DEBUG_NONE
 #include "net/uip-debug.h"
@@ -46,39 +48,44 @@
 #define ETX_LIMIT		15
 #define ETX_SCALE		100
 #define ETX_ALPHA		90
-#define ETX_FIRST_GUESS		5
-
-#define NOACK_PACKET_ETX        8
+#define ETX_NOACK_PENALTY       ETX_LIMIT
 /*---------------------------------------------------------------------------*/
-NEIGHBOR_ATTRIBUTE(uint8_t, etx, NULL);
+NEIGHBOR_ATTRIBUTE_GLOBAL(link_metric_t, attr_etx, NULL);
+NEIGHBOR_ATTRIBUTE_GLOBAL(unsigned long, attr_timestamp, NULL);
 
 static neighbor_info_subscriber_t subscriber_callback;
 /*---------------------------------------------------------------------------*/
 static void
-update_etx(const rimeaddr_t *dest, int packet_etx)
+update_metric(const rimeaddr_t *dest, int packet_metric)
 {
-  uint8_t *etxp;
-  uint8_t recorded_etx, new_etx;
+  link_metric_t *metricp;
+  link_metric_t recorded_metric, new_metric;
+  unsigned long time;
 
-  etxp = (uint8_t *)neighbor_attr_get_data(&etx, dest);
-  if(etxp == NULL || *etxp == 0) {
-    recorded_etx = ETX2FIX(ETX_FIRST_GUESS);
+  metricp = (link_metric_t *)neighbor_attr_get_data(&attr_etx, dest);
+  packet_metric = NEIGHBOR_INFO_ETX2FIX(packet_metric);
+  if(metricp == NULL || *metricp == 0) {
+    recorded_metric = NEIGHBOR_INFO_ETX2FIX(ETX_LIMIT);
+    new_metric = packet_metric;
   } else {
-    recorded_etx = *etxp;
+    recorded_metric = *metricp;
+    /* Update the EWMA of the ETX for the neighbor. */
+    new_metric = ((uint16_t)recorded_metric * ETX_ALPHA +
+               (uint16_t)packet_metric * (ETX_SCALE - ETX_ALPHA)) / ETX_SCALE;
   }
 
-  /* Update the EWMA of the ETX for the neighbor. */
-  packet_etx = ETX2FIX(packet_etx);
-  new_etx = ((uint16_t)recorded_etx * ETX_ALPHA +
-             (uint16_t)packet_etx * (ETX_SCALE - ETX_ALPHA)) / ETX_SCALE;
   PRINTF("neighbor-info: ETX changed from %d to %d (packet ETX = %d) %d\n",
-         FIX2ETX(recorded_etx), FIX2ETX(new_etx), FIX2ETX(packet_etx),
+	 NEIGHBOR_INFO_FIX2ETX(recorded_metric),
+	 NEIGHBOR_INFO_FIX2ETX(new_metric),
+	 NEIGHBOR_INFO_FIX2ETX(packet_metric),
          dest->u8[7]);
 
   if(neighbor_attr_has_neighbor(dest)) {
-    neighbor_attr_set_data(&etx, dest, &new_etx);
-    if(new_etx != recorded_etx && subscriber_callback != NULL) {
-      subscriber_callback(dest, 1, new_etx);
+    time = clock_seconds();
+    neighbor_attr_set_data(&attr_etx, dest, &new_metric);
+    neighbor_attr_set_data(&attr_timestamp, dest, &time);
+    if(new_metric != recorded_metric && subscriber_callback != NULL) {
+      subscriber_callback(dest, 1, new_metric);
     }
   }
 }
@@ -94,9 +101,6 @@ add_neighbor(const rimeaddr_t *addr)
     PRINTF("neighbor-info: The neighbor is already known\n");
     break;
   default:
-    if(subscriber_callback != NULL) {
-      subscriber_callback(addr, 1, ETX2FIX(ETX_FIRST_GUESS));
-    }
     break;
   }
 }
@@ -105,38 +109,47 @@ void
 neighbor_info_packet_sent(int status, int numtx)
 {
   const rimeaddr_t *dest;
-  uint8_t packet_etx;
+  link_metric_t packet_metric;
+#if UIP_DS6_LL_NUD
+  uip_ds6_nbr_t *nbr;
+#endif /* UIP_DS6_LL_NUD */
 
   dest = packetbuf_addr(PACKETBUF_ADDR_RECEIVER);
   if(rimeaddr_cmp(dest, &rimeaddr_null)) {
     return;
   }
 
-  PRINTF("neighbor-info: packet sent to %d.%d, status=%d, numtx=%d\n",
+  packet_metric = numtx;
+
+  PRINTF("neighbor-info: packet sent to %d.%d, status=%d, metric=%u\n",
 	dest->u8[sizeof(*dest) - 2], dest->u8[sizeof(*dest) - 1],
-	status, numtx);
+	status, (unsigned)packet_metric);
 
   switch(status) {
   case MAC_TX_OK:
-    packet_etx = numtx;
     add_neighbor(dest);
-    break;
-  case MAC_TX_COLLISION:
-    packet_etx = numtx;
+#if UIP_DS6_LL_NUD
+    nbr = uip_ds6_nbr_ll_lookup((uip_lladdr_t *)dest);
+    if(nbr != NULL &&
+       (nbr->state == STALE || nbr->state == DELAY || nbr->state == PROBE)) {
+      nbr->state = REACHABLE;
+      stimer_set(&nbr->reachable, UIP_ND6_REACHABLE_TIME / 1000);
+      PRINTF("neighbor-info : received a link layer ACK : ");
+      PRINTLLADDR((uip_lladdr_t *)dest);
+      PRINTF(" is reachable.\n");
+    }
+#endif /* UIP_DS6_LL_NUD */
     break;
   case MAC_TX_NOACK:
-    packet_etx = NOACK_PACKET_ETX;
-  /* error and collissions will not cause high hits ??? */
+    packet_metric = ETX_NOACK_PENALTY;
     break;
-  case MAC_TX_ERR:
   default:
-    packet_etx = 0;
-    break;
+    /* Do not penalize the ETX when collisions or transmission
+       errors occur. */
+    return;
   }
 
-  if(packet_etx > 0) {
-    update_etx(dest, packet_etx);
-  }
+  update_metric(dest, packet_metric);
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -159,7 +172,8 @@ int
 neighbor_info_subscribe(neighbor_info_subscriber_t s)
 {
   if(subscriber_callback == NULL) {
-    neighbor_attr_register(&etx);
+    neighbor_attr_register(&attr_etx);
+    neighbor_attr_register(&attr_timestamp);
     subscriber_callback = s;
     return 1;
   }
@@ -167,12 +181,12 @@ neighbor_info_subscribe(neighbor_info_subscriber_t s)
   return 0;
 }
 /*---------------------------------------------------------------------------*/
-uint8_t
-neighbor_info_get_etx(const rimeaddr_t *addr)
+link_metric_t
+neighbor_info_get_metric(const rimeaddr_t *addr)
 {
-  uint8_t *etxp;
+  link_metric_t *metricp;
 
-  etxp = (uint8_t *)neighbor_attr_get_data(&etx, addr);
-  return etxp == NULL ? 0 : *etxp;
+  metricp = (link_metric_t *)neighbor_attr_get_data(&attr_etx, addr);
+  return metricp == NULL ? ETX_LIMIT : *metricp;
 }
 /*---------------------------------------------------------------------------*/

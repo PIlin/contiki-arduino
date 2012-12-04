@@ -50,6 +50,7 @@ The COOJA Simulator
           <pathelement path="${build}"/>
           <pathelement location="lib/jdom.jar"/>
           <pathelement location="lib/log4j.jar"/>
+          <pathelement location="lib/jsyntaxpane.jar"/>
         </classpath>
     </java>
   </target>
@@ -62,17 +63,20 @@ The COOJA Simulator
       <classpath>
         <pathelement location="lib/jdom.jar"/>
         <pathelement location="lib/log4j.jar"/>
+        <pathelement location="lib/jsyntaxpane.jar"/>
       </classpath>
     </javadoc>
   </target>
 
   <target name="compile" depends="init">
     <mkdir dir="${build}"/>
-    <javac srcdir="${java}" destdir="${build}" debug="on">
+    <javac srcdir="${java}" destdir="${build}" debug="on"
+           includeantruntime="false">
       <classpath>
         <pathelement path="."/>
         <pathelement location="lib/jdom.jar"/>
         <pathelement location="lib/log4j.jar"/>
+        <pathelement location="lib/jsyntaxpane.jar"/>
       </classpath>
     </javac>
   </target>
@@ -92,6 +96,7 @@ The COOJA Simulator
     <ant antfile="build.xml" dir="apps/avrora" target="clean" inheritAll="false"/>
     <ant antfile="build.xml" dir="apps/serial_socket" target="clean" inheritAll="false"/>
     <ant antfile="build.xml" dir="apps/collect-view" target="clean" inheritAll="false"/>
+	<ant antfile="build.xml" dir="apps/powertracker" target="clean" inheritAll="false"/>
   </target>
 
   <target name="run" depends="init, compile, jar, copy configs">
@@ -103,6 +108,22 @@ The COOJA Simulator
         <pathelement path="${build}"/>
         <pathelement location="lib/jdom.jar"/>
         <pathelement location="lib/log4j.jar"/>
+        <pathelement location="lib/jsyntaxpane.jar"/>
+      </classpath>
+    </java>
+  </target>
+
+  <target name="run64" depends="init, compile, jar, copy configs">
+    <java fork="yes" dir="${build}" classname="se.sics.cooja.GUI" maxmemory="512m">
+      <sysproperty key="user.language" value="en"/>
+      <jvmarg value="-d64 -XX:+ShowMessageBoxOnError"/>
+      <arg line="${args}"/>
+      <env key="LD_LIBRARY_PATH" value="."/>
+      <classpath>
+        <pathelement path="${build}"/>
+        <pathelement location="lib/jdom.jar"/>
+        <pathelement location="lib/log4j.jar"/>
+        <pathelement location="lib/jsyntaxpane.jar"/>
       </classpath>
     </java>
   </target>
@@ -116,6 +137,7 @@ The COOJA Simulator
         <pathelement path="${build}"/>
         <pathelement location="lib/jdom.jar"/>
         <pathelement location="lib/log4j.jar"/>
+        <pathelement location="lib/jsyntaxpane.jar"/>
       </classpath>
     </java>
   </target>
@@ -129,6 +151,7 @@ The COOJA Simulator
         <pathelement path="${build}"/>
         <pathelement location="lib/jdom.jar"/>
         <pathelement location="lib/log4j.jar"/>
+        <pathelement location="lib/jsyntaxpane.jar"/>
       </classpath>
     </java>
   </target>
@@ -141,6 +164,7 @@ The COOJA Simulator
         <pathelement path="${build}"/>
         <pathelement location="lib/jdom.jar"/>
         <pathelement location="lib/log4j.jar"/>
+        <pathelement location="lib/jsyntaxpane.jar"/>
         <pathelement location="../mspsim/lib/jfreechart-1.0.11.jar"/>
         <pathelement location="../mspsim/lib/jcommon-1.0.14.jar"/>
       </classpath>
@@ -155,6 +179,7 @@ The COOJA Simulator
         <pathelement path="${build}"/>
         <pathelement location="lib/jdom.jar"/>
         <pathelement location="lib/log4j.jar"/>
+        <pathelement location="lib/jsyntaxpane.jar"/>
       </classpath>
     </java>
   </target>
@@ -165,6 +190,7 @@ The COOJA Simulator
     <ant antfile="build.xml" dir="apps/avrora" target="jar" inheritAll="false"/>
     <ant antfile="build.xml" dir="apps/serial_socket" target="jar" inheritAll="false"/>
     <ant antfile="build.xml" dir="apps/collect-view" target="jar" inheritAll="false"/>
+    <ant antfile="build.xml" dir="apps/powertracker" target="jar" inheritAll="false"/>
   </target>
 
   <target name="run_nogui" depends="init, compile, jar, copy configs">
@@ -175,6 +201,7 @@ The COOJA Simulator
         <pathelement path="${build}"/>
         <pathelement location="lib/jdom.jar"/>
         <pathelement location="lib/log4j.jar"/>
+        <pathelement location="lib/jsyntaxpane.jar"/>
       </classpath>
     </java>
   </target>
@@ -189,7 +216,7 @@ The COOJA Simulator
   </target>
 
   <target name="java_version" depends="init">
-    <exec executable="javac" dir="${build}">
+    <exec executable="javac" dir="${build}" includeantruntime="false">
       <arg value="-version"/>
     </exec>
   </target>
@@ -199,7 +226,7 @@ The COOJA Simulator
     <jar destfile="${dist}/cooja.jar" basedir="${build}">
       <manifest>
         <attribute name="Main-Class" value="se.sics.cooja.GUI"/>
-        <attribute name="Class-Path" value=". lib/log4j.jar lib/jdom.jar"/>
+        <attribute name="Class-Path" value=". lib/log4j.jar lib/jdom.jar lib/jsyntaxpane.jar"/>
       </manifest>
     </jar>
     <mkdir dir="${dist}/lib"/>

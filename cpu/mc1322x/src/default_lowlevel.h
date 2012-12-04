@@ -30,7 +30,7 @@
  * This file is part of libmc1322x: see http://mc1322x.devl.org
  * for details. 
  *
- * $Id: default_lowlevel.h,v 1.4 2011/01/17 15:48:39 maralvira Exp $
+ *
  */
 
 #ifndef LOWLEVEL_H
@@ -42,6 +42,7 @@
 
 void default_vreg_init(void);
 void uart1_init(uint16_t inc, uint16_t mod, uint8_t samp);
+void uart2_init(uint16_t inc, uint16_t mod, uint8_t samp);
 
 void irq_register_timer_handler(int timer, void (*isr)(void));
 

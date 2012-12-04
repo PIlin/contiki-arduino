@@ -54,6 +54,18 @@
 #include <string.h>
 #include <stdio.h>
 
+#ifdef SHELL_CONF_PROMPT
+extern char shell_prompt_text[];
+#else
+static char shell_prompt_text[] = "Contiki> ";
+#endif
+
+#ifdef SHELL_CONF_BANNER
+extern char shell_banner_text[];
+#else
+static char shell_banner_text[] = "Contiki command shell";
+#endif
+
 LIST(commands);
 
 int shell_event_input;
@@ -77,10 +89,13 @@ PROCESS(shell_kill_process, "kill");
 SHELL_COMMAND(kill_command, "kill", "kill <command>: stop a specific command",
 	      &shell_kill_process);
 PROCESS(shell_null_process, "null");
-SHELL_COMMAND(null_command,
-	      "null",
-	      "null: discard input",
+SHELL_COMMAND(null_command, "null", "null: discard input",
 	      &shell_null_process);
+PROCESS(shell_exit_process, "exit");
+SHELL_COMMAND(exit_command, "exit", "exit: exit shell",
+	      &shell_exit_process);
+SHELL_COMMAND(quit_command, "quit", "quit: exit shell",
+	      &shell_exit_process);
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(shell_null_process, ev, data)
 {
@@ -168,7 +183,16 @@ PROCESS_THREAD(help_command_process, ev, data)
       c = c->next) {
     shell_output_str(&help_command, c->description, "");
   }
-  
+
+  PROCESS_END();
+}
+/*---------------------------------------------------------------------------*/
+PROCESS_THREAD(shell_exit_process, ev, data)
+{
+  PROCESS_BEGIN();
+
+  shell_exit();
+
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
@@ -410,19 +434,19 @@ shell_register_command(struct shell_command *c)
 PROCESS_THREAD(shell_process, ev, data)
 {
   static struct process *started_process;
+  struct shell_input *input;
+  int ret;
   PROCESS_BEGIN();
 
   /* Let the system start up before showing the prompt. */
   PROCESS_PAUSE();
   
   while(1) {
-    shell_prompt("Contiki> ");
+    shell_prompt(shell_prompt_text);
     
     PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
     {
-      struct shell_input *input = data;
-      int ret;
-      
+      input = data;
       ret = shell_start_command(input->data1, input->len1, NULL,
 				&started_process);
 
@@ -483,6 +507,8 @@ shell_init(void)
   shell_register_command(&killall_command);
   shell_register_command(&kill_command);
   shell_register_command(&null_command);
+  shell_register_command(&exit_command);
+  shell_register_command(&quit_command);
   
   shell_event_input = process_alloc_event();
   
@@ -536,15 +562,21 @@ shell_set_time(unsigned long seconds)
 void
 shell_start(void)
 {
-  shell_output_str(NULL, "Contiki command shell", "");
+  shell_output_str(NULL, shell_banner_text, "");
   shell_output_str(NULL, "Type '?' and return for help", "");
-  shell_prompt("Contiki> ");
+  shell_prompt(shell_prompt_text);
+}
+/*---------------------------------------------------------------------------*/
+void
+shell_stop(void)
+{
+  killall();
 }
 /*---------------------------------------------------------------------------*/
 void
 shell_quit(void)
 {
-  killall();
+  shell_stop();
   process_exit(&shell_process);
   process_exit(&shell_server_process);
 }

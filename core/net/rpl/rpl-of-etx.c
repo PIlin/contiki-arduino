@@ -32,70 +32,79 @@
  *
  * This file is part of the Contiki operating system.
  *
- * $Id: rpl-of-etx.c,v 1.8 2010/11/03 15:41:23 adamdunkels Exp $
  */
 /**
  * \file
- *         An implementation of RPL's objective function 1 (ETX).
+ *         The minrank-hysteresis objective function (OCP 1).
+ *
+ *         This implementation uses the estimated number of 
+ *         transmissions (ETX) as the additive routing metric.
  *
  * \author Joakim Eriksson <joakime@sics.se>, Nicolas Tsiftes <nvt@sics.se>
  */
 
-#include "net/rpl/rpl.h"
+#include "net/rpl/rpl-private.h"
 #include "net/neighbor-info.h"
 
 #define DEBUG DEBUG_NONE
 #include "net/uip-debug.h"
 
-static void reset(void *);
+static void reset(rpl_dag_t *);
 static void parent_state_callback(rpl_parent_t *, int, int);
 static rpl_parent_t *best_parent(rpl_parent_t *, rpl_parent_t *);
+static rpl_dag_t *best_dag(rpl_dag_t *, rpl_dag_t *);
 static rpl_rank_t calculate_rank(rpl_parent_t *, rpl_rank_t);
+static void update_metric_container(rpl_instance_t *);
 
 rpl_of_t rpl_of_etx = {
   reset,
   parent_state_callback,
   best_parent,
+  best_dag,
   calculate_rank,
+  update_metric_container,
   1
 };
 
-#define LINK_ETX_MIN			1
-#define LINK_ETX_MAX			10
-#define LINK_ETX_GUESS			3
-#define PATH_ETX_MIN			1
-#define PATH_ETX_MAX			200
-#define PARENT_SWITCH_ETX_THRESHOLD	0.5
+/* Reject parents that have a higher link metric than the following. */
+#define MAX_LINK_METRIC			10
 
-typedef uint16_t etx_t;
+/* Reject parents that have a higher path cost than the following. */
+#define MAX_PATH_COST			100
 
-static etx_t min_path_etx = INFINITE_RANK;
+/*
+ * The rank must differ more than 1/PARENT_SWITCH_THRESHOLD_DIV in order
+ * to switch preferred parent.
+ */
+#define PARENT_SWITCH_THRESHOLD_DIV	2
+
+typedef uint16_t rpl_path_metric_t;
+
+static rpl_path_metric_t
+calculate_path_metric(rpl_parent_t *p)
+{
+  if(p == NULL || (p->mc.obj.etx == 0 && p->rank > ROOT_RANK(p->dag->instance))) {
+    return MAX_PATH_COST * RPL_DAG_MC_ETX_DIVISOR;
+  } else {
+    long etx = p->link_metric;
+    etx = (etx * RPL_DAG_MC_ETX_DIVISOR) / NEIGHBOR_INFO_ETX_DIVISOR;
+    return p->mc.obj.etx + (uint16_t) etx;
+  }
+}
 
 static void
-reset(void *dag)
+reset(rpl_dag_t *sag)
 {
-  min_path_etx = INFINITE_RANK;
 }
 
 static void
 parent_state_callback(rpl_parent_t *parent, int known, int etx)
 {
-  rpl_dag_t *dag;
-
-  dag = (rpl_dag_t *)parent->dag;
-
-  if(!known) {
-    if(RPL_PARENT_COUNT(dag) == 1) {
-      /* Our last parent has disappeared, set the path ETX to INFINITE_RANK. */
-      min_path_etx = INFINITE_RANK;
-    }
-  }
 }
 
 static rpl_rank_t
 calculate_rank(rpl_parent_t *p, rpl_rank_t base_rank)
 {
-  rpl_dag_t *dag;
   rpl_rank_t new_rank;
   rpl_rank_t rank_increase;
 
@@ -103,24 +112,13 @@ calculate_rank(rpl_parent_t *p, rpl_rank_t base_rank)
     if(base_rank == 0) {
       return INFINITE_RANK;
     }
-    rank_increase = LINK_ETX_GUESS * DEFAULT_MIN_HOPRANKINC;
+    rank_increase = NEIGHBOR_INFO_FIX2ETX(INITIAL_LINK_METRIC) * RPL_MIN_HOPRANKINC;
   } else {
-    dag = (rpl_dag_t *)p->dag;
-    if(p->local_confidence == 0) {
-      p->local_confidence = LINK_ETX_GUESS * ETX_DIVISOR;
-    }
-    rank_increase = (p->local_confidence * dag->min_hoprankinc) / ETX_DIVISOR;
+    /* multiply first, then scale down to avoid truncation effects */
+    rank_increase = NEIGHBOR_INFO_FIX2ETX(p->link_metric * p->dag->instance->min_hoprankinc);
     if(base_rank == 0) {
       base_rank = p->rank;
     }
-  }
-
-  PRINTF("RPL: OF1 calculate rank, base rank = %u, rank_increase = %u\n",
-	 (unsigned)base_rank, rank_increase);
-
-  if(base_rank < min_path_etx) {
-    min_path_etx = base_rank;
-    PRINTF("RPL: min_path_etx updated to %u\n", min_path_etx);
   }
 
   if(INFINITE_RANK - base_rank < rank_increase) {
@@ -132,35 +130,107 @@ calculate_rank(rpl_parent_t *p, rpl_rank_t base_rank)
     new_rank = base_rank + rank_increase;
   }
 
-  PRINTF("RPL: Path ETX %u\n", (unsigned)new_rank);
-
   return new_rank;
+}
+
+static rpl_dag_t *
+best_dag(rpl_dag_t *d1, rpl_dag_t *d2)
+{
+  if(d1->grounded != d2->grounded) {
+    return d1->grounded ? d1 : d2;
+  }
+
+  if(d1->preference != d2->preference) {
+    return d1->preference > d2->preference ? d1 : d2;
+  }
+
+  return d1->rank < d2->rank ? d1 : d2;
 }
 
 static rpl_parent_t *
 best_parent(rpl_parent_t *p1, rpl_parent_t *p2)
 {
   rpl_dag_t *dag;
-  rpl_rank_t p1_rank;
-  rpl_rank_t p2_rank;
+  rpl_path_metric_t min_diff;
+  rpl_path_metric_t p1_metric;
+  rpl_path_metric_t p2_metric;
 
-  dag = (rpl_dag_t *)p1->dag; /* Both parents must be in the same DAG. */
+  dag = p1->dag; /* Both parents must be in the same DAG. */
 
-  p1_rank = DAG_RANK(calculate_rank(p1, 0), dag);
-  p2_rank = DAG_RANK(calculate_rank(p2, 0), dag);
+  min_diff = RPL_DAG_MC_ETX_DIVISOR /
+             PARENT_SWITCH_THRESHOLD_DIV;
+
+  p1_metric = calculate_path_metric(p1);
+  p2_metric = calculate_path_metric(p2);
 
   /* Maintain stability of the preferred parent in case of similar ranks. */
-  if(p1_rank == p2_rank) {
-    if(p1 == dag->preferred_parent) {
-      return p1;
-    } else if(p2 == dag->preferred_parent) {
-      return p2;
+  if(p1 == dag->preferred_parent || p2 == dag->preferred_parent) {
+    if(p1_metric < p2_metric + min_diff &&
+       p1_metric > p2_metric - min_diff) {
+      PRINTF("RPL: MRHOF hysteresis: %u <= %u <= %u\n",
+             p2_metric - min_diff,
+             p1_metric,
+             p2_metric + min_diff);
+      return dag->preferred_parent;
     }
   }
 
-  if(p1_rank < p2_rank) {
-    return p1;
+  return p1_metric < p2_metric ? p1 : p2;
+}
+
+static void
+update_metric_container(rpl_instance_t *instance)
+{
+  rpl_path_metric_t path_metric;
+  rpl_dag_t *dag;
+#if RPL_DAG_MC == RPL_DAG_MC_ENERGY
+  uint8_t type;
+#endif
+
+  instance->mc.flags = RPL_DAG_MC_FLAG_P;
+  instance->mc.aggr = RPL_DAG_MC_AGGR_ADDITIVE;
+  instance->mc.prec = 0;
+
+  dag = instance->current_dag;
+
+  if (!dag->joined) {
+    /* We should probably do something here */
+    return;
   }
 
-  return p2;
+  if(dag->rank == ROOT_RANK(instance)) {
+    path_metric = 0;
+  } else {
+    path_metric = calculate_path_metric(dag->preferred_parent);
+  }
+
+#if RPL_DAG_MC == RPL_DAG_MC_ETX
+
+  instance->mc.type = RPL_DAG_MC_ETX;
+  instance->mc.length = sizeof(instance->mc.obj.etx);
+  instance->mc.obj.etx = path_metric;
+
+  PRINTF("RPL: My path ETX to the root is %u.%u\n",
+	instance->mc.obj.etx / RPL_DAG_MC_ETX_DIVISOR,
+	(instance->mc.obj.etx % RPL_DAG_MC_ETX_DIVISOR * 100) / RPL_DAG_MC_ETX_DIVISOR);
+
+#elif RPL_DAG_MC == RPL_DAG_MC_ENERGY
+
+  instance->mc.type = RPL_DAG_MC_ENERGY;
+  instance->mc.length = sizeof(instance->mc.obj.energy);
+
+  if(dag->rank == ROOT_RANK(instance)) {
+    type = RPL_DAG_MC_ENERGY_TYPE_MAINS;
+  } else {
+    type = RPL_DAG_MC_ENERGY_TYPE_BATTERY;
+  }
+
+  instance->mc.obj.energy.flags = type << RPL_DAG_MC_ENERGY_TYPE;
+  instance->mc.obj.energy.energy_est = path_metric;
+
+#else
+
+#error "Unsupported RPL_DAG_MC configured. See rpl.h."
+
+#endif /* RPL_DAG_MC */
 }

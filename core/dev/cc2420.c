@@ -40,8 +40,6 @@
 
 #if defined(__AVR__)
 #include <avr/io.h>
-#elif defined(__MSP430__)
-#include <io.h>
 #endif
 
 #include "dev/leds.h"
@@ -139,7 +137,7 @@ static int cc2420_send(const void *data, unsigned short len);
 static int cc2420_receiving_packet(void);
 static int pending_packet(void);
 static int cc2420_cca(void);
-static int detected_energy(void);
+/*static int detected_energy(void);*/
 
 signed char cc2420_last_rssi;
 uint8_t cc2420_last_correlation;
@@ -291,11 +289,11 @@ cc2420_init(void)
 
   /* Turn on voltage regulator and reset. */
   SET_VREG_ACTIVE();
-  //clock_delay(250); OK
+  clock_delay(250);
   SET_RESET_ACTIVE();
   clock_delay(127);
   SET_RESET_INACTIVE();
-  //clock_delay(125); OK
+  clock_delay(125);
 
 
   /* Turn on the crystal oscillator. */

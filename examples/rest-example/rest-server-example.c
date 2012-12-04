@@ -5,16 +5,24 @@
 #include "contiki-net.h"
 #include "rest.h"
 
+#if defined (PLATFORM_HAS_LIGHT)
 #include "dev/light-sensor.h"
+#endif
+#if defined (PLATFORM_HAS_BATT)
 #include "dev/battery-sensor.h"
+#endif
+#if defined (PLATFORM_HAS_SHT11)
 #include "dev/sht11-sensor.h"
+#endif
+#if defined (PLATFORM_HAS_LEDS)
 #include "dev/leds.h"
+#endif
 
 #define DEBUG 1
 #if DEBUG
 #include <stdio.h>
 #define PRINTF(...) printf(__VA_ARGS__)
-#define PRINT6ADDR(addr) PRINTF(" %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x ", ((u8_t *)addr)[0], ((u8_t *)addr)[1], ((u8_t *)addr)[2], ((u8_t *)addr)[3], ((u8_t *)addr)[4], ((u8_t *)addr)[5], ((u8_t *)addr)[6], ((u8_t *)addr)[7], ((u8_t *)addr)[8], ((u8_t *)addr)[9], ((u8_t *)addr)[10], ((u8_t *)addr)[11], ((u8_t *)addr)[12], ((u8_t *)addr)[13], ((u8_t *)addr)[14], ((u8_t *)addr)[15])
+#define PRINT6ADDR(addr) PRINTF(" %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x ", ((uint8_t *)addr)[0], ((uint8_t *)addr)[1], ((uint8_t *)addr)[2], ((uint8_t *)addr)[3], ((uint8_t *)addr)[4], ((uint8_t *)addr)[5], ((uint8_t *)addr)[6], ((uint8_t *)addr)[7], ((uint8_t *)addr)[8], ((uint8_t *)addr)[9], ((uint8_t *)addr)[10], ((uint8_t *)addr)[11], ((uint8_t *)addr)[12], ((uint8_t *)addr)[13], ((uint8_t *)addr)[14], ((uint8_t *)addr)[15])
 #define PRINTLLADDR(lladdr) PRINTF(" %02x:%02x:%02x:%02x:%02x:%02x ",(lladdr)->addr[0], (lladdr)->addr[1], (lladdr)->addr[2], (lladdr)->addr[3],(lladdr)->addr[4], (lladdr)->addr[5])
 #else
 #define PRINTF(...)
@@ -36,9 +44,54 @@ helloworld_handler(REQUEST* request, RESPONSE* response)
   sprintf(temp,"Hello World!\n");
 
   rest_set_header_content_type(response, TEXT_PLAIN);
-  rest_set_response_payload(response, temp, strlen(temp));
+  rest_set_response_payload(response, (uint8_t*)temp, strlen(temp));
 }
 
+RESOURCE(discover, METHOD_GET, ".well-known/core");
+void
+discover_handler(REQUEST* request, RESPONSE* response)
+{
+  char temp[100];
+  int index = 0;
+  index += sprintf(temp + index, "%s,", "</helloworld>;n=\"HelloWorld\"");
+#if defined (PLATFORM_HAS_LEDS)
+  index += sprintf(temp + index, "%s,", "</led>;n=\"LedControl\"");
+#endif
+#if defined (PLATFORM_HAS_LIGHT)
+  index += sprintf(temp + index, "%s", "</light>;n=\"Light\"");
+#endif
+
+  rest_set_response_payload(response, (uint8_t*)temp, strlen(temp));
+  rest_set_header_content_type(response, APPLICATION_LINK_FORMAT);
+}
+
+#if defined (PLATFORM_HAS_LIGHT)
+uint16_t light_photosynthetic;
+uint16_t light_solar;
+
+void
+read_light_sensor(uint16_t* light_1, uint16_t* light_2)
+{
+  *light_1 = light_sensor.value(LIGHT_SENSOR_PHOTOSYNTHETIC);
+  *light_2 = light_sensor.value(LIGHT_SENSOR_TOTAL_SOLAR);
+}
+
+/*A simple getter example. Returns the reading from light sensor with a simple etag*/
+RESOURCE(light, METHOD_GET, "light");
+void
+light_handler(REQUEST* request, RESPONSE* response)
+{
+  read_light_sensor(&light_photosynthetic, &light_solar);
+  sprintf(temp,"%u;%u", light_photosynthetic, light_solar);
+
+  char etag[4] = "ABCD";
+  rest_set_header_content_type(response, TEXT_PLAIN);
+  rest_set_header_etag(response, etag, sizeof(etag));
+  rest_set_response_payload(response, temp, strlen(temp));
+}
+#endif /*PLATFORM_HAS_LIGHT*/
+
+#if defined (PLATFORM_HAS_LEDS)
 /*A simple actuator example, depending on the color query parameter and post variable mode, corresponding led is activated or deactivated*/
 RESOURCE(led, METHOD_POST | METHOD_PUT , "led");
 
@@ -85,33 +138,6 @@ led_handler(REQUEST* request, RESPONSE* response)
   }
 }
 
-uint16_t light_photosynthetic;
-uint16_t light_solar;
-
-void
-read_light_sensor(uint16_t* light_1, uint16_t* light_2)
-{
-  *light_1 = light_sensor.value(LIGHT_SENSOR_PHOTOSYNTHETIC);
-  *light_2 = light_sensor.value(LIGHT_SENSOR_TOTAL_SOLAR);
-}
-
-/*A simple getter example. Returns the reading from light sensor with a simple etag*/
-RESOURCE(light, METHOD_GET, "light");
-void
-light_handler(REQUEST* request, RESPONSE* response)
-{
-#ifdef CONTIKI_TARGET_SKY
-  read_light_sensor(&light_photosynthetic, &light_solar);
-  sprintf(temp,"%u;%u", light_photosynthetic, light_solar);
-#else /*CONTIKI_TARGET_SKY*/
-  sprintf(temp,"%d.%d", 0, 0);
-#endif /*CONTIKI_TARGET_SKY*/
-
-  char etag[4] = "ABCD";
-  rest_set_header_content_type(response, TEXT_PLAIN);
-  rest_set_header_etag(response, etag, sizeof(etag));
-  rest_set_response_payload(response, temp, strlen(temp));
-}
 
 /*A simple actuator example. Toggles the red led*/
 RESOURCE(toggle, METHOD_GET | METHOD_PUT | METHOD_POST, "toggle");
@@ -120,20 +146,8 @@ toggle_handler(REQUEST* request, RESPONSE* response)
 {
   leds_toggle(LEDS_RED);
 }
+#endif /*defined (CONTIKI_HAS_LEDS)*/
 
-RESOURCE(discover, METHOD_GET, ".well-known/core");
-void
-discover_handler(REQUEST* request, RESPONSE* response)
-{
-  char temp[100];
-  int index = 0;
-  index += sprintf(temp + index, "%s,", "</helloworld>;n=\"HelloWorld\"");
-  index += sprintf(temp + index, "%s,", "</led>;n=\"LedControl\"");
-  index += sprintf(temp + index, "%s", "</light>;n=\"Light\"");
-
-  rest_set_response_payload(response, temp, strlen(temp));
-  rest_set_header_content_type(response, APPLICATION_LINK_FORMAT);
-}
 
 PROCESS(rest_server_example, "Rest Server Example");
 AUTOSTART_PROCESSES(&rest_server_example);
@@ -148,14 +162,18 @@ PROCESS_THREAD(rest_server_example, ev, data)
   PRINTF("HTTP Server\n");
 #endif
 
-  SENSORS_ACTIVATE(light_sensor);
-
   rest_init();
 
-  rest_activate_resource(&resource_helloworld);
-  rest_activate_resource(&resource_led);
+#if defined (PLATFORM_HAS_LIGHT)
+  SENSORS_ACTIVATE(light_sensor);
   rest_activate_resource(&resource_light);
+#endif
+#if defined (PLATFORM_HAS_LEDS)
+  rest_activate_resource(&resource_led);
   rest_activate_resource(&resource_toggle);
+#endif /*defined (PLATFORM_HAS_LEDS)*/
+
+  rest_activate_resource(&resource_helloworld);
   rest_activate_resource(&resource_discover);
 
   PROCESS_END();

@@ -100,7 +100,7 @@ static uint8_t is_gateway;
 #if WITH_UIP6
 #include "net/uip.h"
 #include "net/uip-ds6.h"
-#define PRINT6ADDR(addr) printf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x", ((u8_t *)addr)[0], ((u8_t *)addr)[1], ((u8_t *)addr)[2], ((u8_t *)addr)[3], ((u8_t *)addr)[4], ((u8_t *)addr)[5], ((u8_t *)addr)[6], ((u8_t *)addr)[7], ((u8_t *)addr)[8], ((u8_t *)addr)[9], ((u8_t *)addr)[10], ((u8_t *)addr)[11], ((u8_t *)addr)[12], ((u8_t *)addr)[13], ((u8_t *)addr)[14], ((u8_t *)addr)[15])
+#define PRINT6ADDR(addr) printf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x", ((uint8_t *)addr)[0], ((uint8_t *)addr)[1], ((uint8_t *)addr)[2], ((uint8_t *)addr)[3], ((uint8_t *)addr)[4], ((uint8_t *)addr)[5], ((uint8_t *)addr)[6], ((uint8_t *)addr)[7], ((uint8_t *)addr)[8], ((uint8_t *)addr)[9], ((uint8_t *)addr)[10], ((uint8_t *)addr)[11], ((uint8_t *)addr)[12], ((uint8_t *)addr)[13], ((uint8_t *)addr)[14], ((uint8_t *)addr)[15])
 #endif /* WITH_UIP6 */
 
 PROCINIT(&etimer_process,&sensors_process);
@@ -118,6 +118,9 @@ SIM_INTERFACE_NAME(clock_interface);
 SIM_INTERFACE_NAME(leds_interface);
 SIM_INTERFACE_NAME(cfs_interface);
 SIM_INTERFACES(&vib_interface, &moteid_interface, &rs232_interface, &simlog_interface, &beep_interface, &radio_interface, &button_interface, &pir_interface, &clock_interface, &leds_interface, &cfs_interface);
+/* Example: manually add mote interfaces */
+//SIM_INTERFACE_NAME(dummy_interface);
+//SIM_INTERFACES(..., &dummy_interface);
 
 /* Sensors */
 SENSORS(&button_sensor, &pir_sensor, &vib_sensor);

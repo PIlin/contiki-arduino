@@ -4,12 +4,11 @@
 #ifndef CONTIKI_CONF_H
 #define CONTIKI_CONF_H
 
-
-#ifdef PROJECT_CONF_H
-#include "project-conf.h"
-#endif /* PROJECT_CONF_H */
-
+#ifdef PLATFORM_CONF_H
+#include PLATFORM_CONF_H
+#else
 #include "platform-conf.h"
+#endif /* PLATFORM_CONF_H */
 
 #ifndef NETSTACK_CONF_MAC
 #define NETSTACK_CONF_MAC     csma_driver
@@ -35,10 +34,23 @@
 #define CC2420_CONF_AUTOACK              1
 #endif /* CC2420_CONF_AUTOACK */
 
+/* Specify whether the RDC layer should enable
+   per-packet power profiling. */
+#define CONTIKIMAC_CONF_COMPOWER         1
+#define XMAC_CONF_COMPOWER               1
+#define CXMAC_CONF_COMPOWER              1
 
 #if WITH_UIP6
 /* Network setup for IPv6 */
 #define NETSTACK_CONF_NETWORK sicslowpan_driver
+
+/* Specify a minimum packet size for 6lowpan compression to be
+   enabled. This is needed for ContikiMAC, which needs packets to be
+   larger than a specified size, if no ContikiMAC header should be
+   used. */
+#define SICSLOWPAN_CONF_COMPRESSION_THRESHOLD 63
+#define CONTIKIMAC_CONF_WITH_CONTIKIMAC_HEADER 0
+
 #define CXMAC_CONF_ANNOUNCEMENTS         0
 #define XMAC_CONF_ANNOUNCEMENTS          0
 
@@ -56,10 +68,6 @@
 #define CXMAC_CONF_ANNOUNCEMENTS         0
 #define XMAC_CONF_ANNOUNCEMENTS          0
 #define CONTIKIMAC_CONF_ANNOUNCEMENTS    0
-
-#define CONTIKIMAC_CONF_COMPOWER         1
-#define XMAC_CONF_COMPOWER               1
-#define CXMAC_CONF_COMPOWER              1
 
 #ifndef COLLECT_NEIGHBOR_CONF_MAX_COLLECT_NEIGHBORS
 #define COLLECT_NEIGHBOR_CONF_MAX_COLLECT_NEIGHBORS     32
@@ -95,7 +103,9 @@
 #define SHELL_VARS_CONF_RAM_END 0x2000
 
 #define PROFILE_CONF_ON 0
+#ifndef ENERGEST_CONF_ON
 #define ENERGEST_CONF_ON 1
+#endif /* ENERGEST_CONF_ON */
 
 #define ELFLOADER_CONF_TEXT_IN_ROM 0
 #ifndef ELFLOADER_CONF_DATAMEMORY_SIZE
@@ -129,10 +139,10 @@
 
 /* configure number of neighbors and routes */
 #ifndef UIP_CONF_DS6_NBR_NBU
-#define UIP_CONF_DS6_NBR_NBU     30
+#define UIP_CONF_DS6_NBR_NBU     20
 #endif /* UIP_CONF_DS6_NBR_NBU */
 #ifndef UIP_CONF_DS6_ROUTE_NBU
-#define UIP_CONF_DS6_ROUTE_NBU   30
+#define UIP_CONF_DS6_ROUTE_NBU   20
 #endif /* UIP_CONF_DS6_ROUTE_NBU */
 
 #define UIP_CONF_ND6_SEND_RA		0
@@ -196,6 +206,12 @@
 #define UIP_CONF_TCP_SPLIT       0
 
 
+
+/* include the project config */
+/* PROJECT_CONF_H might be defined in the project Makefile */
+#ifdef PROJECT_CONF_H
+#include PROJECT_CONF_H
+#endif /* PROJECT_CONF_H */
 
 
 #endif /* CONTIKI_CONF_H */

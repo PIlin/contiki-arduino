@@ -31,12 +31,11 @@
  * SUCH DAMAGE.
  *
  * This file is part of the Contiki operating system.
- *
- * $Id: rpl.c,v 1.14 2010/12/15 14:35:07 nvt-se Exp $
  */
 /**
  * \file
- *         ContikiRPL, an implementation of IETF ROLL RPL.
+ *         ContikiRPL, an implementation of RPL: IPv6 Routing Protocol
+ *         for Low-Power and Lossy Networks (IETF RFC 6550)
  *
  * \author Joakim Eriksson <joakime@sics.se>, Nicolas Tsiftes <nvt@sics.se>
  */
@@ -44,7 +43,7 @@
 #include "net/uip.h"
 #include "net/tcpip.h"
 #include "net/uip-ds6.h"
-#include "net/rpl/rpl.h"
+#include "net/rpl/rpl-private.h"
 #include "net/neighbor-info.h"
 
 #define DEBUG DEBUG_NONE
@@ -88,6 +87,23 @@ rpl_remove_routes(rpl_dag_t *dag)
   }
 }
 /************************************************************************/
+void
+rpl_remove_routes_by_nexthop(uip_ipaddr_t *nexthop, rpl_dag_t *dag)
+{
+  uip_ds6_route_t *locroute;
+
+  for(locroute = uip_ds6_routing_table;
+      locroute < uip_ds6_routing_table + UIP_DS6_ROUTE_NB;
+      locroute++) {
+    if(locroute->isused
+        && uip_ipaddr_cmp(&locroute->nexthop, nexthop)
+        && locroute->state.dag == dag) {
+      locroute->isused = 0;
+    }
+  }
+  ANNOTATE("#L %u 0\n",nexthop->u8[sizeof(uip_ipaddr_t) - 1]);
+}
+/************************************************************************/
 uip_ds6_route_t *
 rpl_add_route(rpl_dag_t *dag, uip_ipaddr_t *prefix, int prefix_len,
               uip_ipaddr_t *next_hop)
@@ -109,7 +125,7 @@ rpl_add_route(rpl_dag_t *dag, uip_ipaddr_t *prefix, int prefix_len,
     uip_ipaddr_copy(&rep->nexthop, next_hop);
   }
   rep->state.dag = dag;
-  rep->state.lifetime = DEFAULT_ROUTE_LIFETIME;
+  rep->state.lifetime = RPL_LIFETIME(dag->instance, dag->instance->default_lifetime);
   rep->state.learned_from = RPL_ROUTE_FROM_INTERNAL;
 
   PRINTF("RPL: Added a route to ");
@@ -125,77 +141,65 @@ static void
 rpl_link_neighbor_callback(const rimeaddr_t *addr, int known, int etx)
 {
   uip_ipaddr_t ipaddr;
-  rpl_dag_t *dag;
   rpl_parent_t *parent;
+  rpl_instance_t *instance;
+  rpl_instance_t *end;
 
   uip_ip6addr(&ipaddr, 0xfe80, 0, 0, 0, 0, 0, 0, 0);
   uip_ds6_set_addr_iid(&ipaddr, (uip_lladdr_t *)addr);
   PRINTF("RPL: Neighbor ");
   PRINT6ADDR(&ipaddr);
-  PRINTF(" is %sknown. ETX = %u\n", known ? "" : "no longer ", FIX2ETX(etx));
+  PRINTF(" is %sknown. ETX = %u\n", known ? "" : "no longer ", NEIGHBOR_INFO_FIX2ETX(etx));
 
-  dag = rpl_get_dag(RPL_DEFAULT_INSTANCE);
-  if(dag == NULL) {
-    return;
-  }
+  for(instance = &instance_table[0], end = instance + RPL_MAX_INSTANCES; instance < end; ++instance) {
+    if(instance->used == 1 ) {
+      parent = rpl_find_parent_any_dag(instance, &ipaddr);
+      if(parent != NULL) {
+        /* Trigger DAG rank recalculation. */
+        parent->updated = 1;
+        parent->link_metric = etx;
 
-  parent = rpl_find_parent(dag, &ipaddr);
-  if(parent == NULL) {
-    if(!known) {
-      PRINTF("RPL: Deleting routes installed by DAOs received from ");
-      PRINT6ADDR(&ipaddr);
-      PRINTF("\n");
-      uip_ds6_route_rm_by_nexthop(&ipaddr);
+        if(instance->of->parent_state_callback != NULL) {
+          instance->of->parent_state_callback(parent, known, etx);
+        }
+        if(!known) {
+          PRINTF("RPL: Removing parent ");
+          PRINT6ADDR(&parent->addr);
+          PRINTF(" in instance %u because of bad connectivity (ETX %d)\n", instance->instance_id, etx);
+          parent->rank = INFINITE_RANK;
+        }
+      }
     }
-    return;
-  }
-
-  if(etx != parent->local_confidence) {
-    /* Trigger DAG rank recalculation. */
-    parent->updated = 1;
-  }
-  parent->local_confidence = etx;
-
-  if(dag->of->parent_state_callback != NULL) {
-    dag->of->parent_state_callback(parent, known, etx);
   }
 
   if(!known) {
-    PRINTF("RPL: Removing parent ");
-    PRINT6ADDR(&parent->addr);
-    PRINTF(" because of bad connectivity (ETX %d)\n", etx);
-    parent->rank = INFINITE_RANK;
-    parent->updated = 1;
+    PRINTF("RPL: Deleting routes installed by DAOs received from ");
+    PRINT6ADDR(&ipaddr);
+    PRINTF("\n");
+    uip_ds6_route_rm_by_nexthop(&ipaddr);
   }
 }
 /************************************************************************/
 void
 rpl_ipv6_neighbor_callback(uip_ds6_nbr_t *nbr)
 {
-  rpl_dag_t *dag;
   rpl_parent_t *p;
-
-  /* This only handles one DODAG - if multiple we need to check all */
-  dag = rpl_get_dag(RPL_ANY_INSTANCE);
-  if(dag == NULL) {
-    return;
-  }
-
-  /* if this is our default route then clean the dag->def_route state */
-  if(dag->def_route != NULL &&
-     uip_ipaddr_cmp(&dag->def_route->ipaddr, &nbr->ipaddr)) {
-    dag->def_route = NULL;
-  }
+  rpl_instance_t *instance;
+  rpl_instance_t *end;
 
   if(!nbr->isused) {
     PRINTF("RPL: Removing neighbor ");
     PRINT6ADDR(&nbr->ipaddr);
     PRINTF("\n");
-    p = rpl_find_parent(dag, &nbr->ipaddr);
-    if(p != NULL) {
-      p->rank = INFINITE_RANK;
-      /* Trigger DAG rank recalculation. */
-      p->updated = 1;
+    for(instance = &instance_table[0], end = instance + RPL_MAX_INSTANCES; instance < end; ++instance) {
+      if(instance->used == 1 ) {
+        p = rpl_find_parent_any_dag(instance, &nbr->ipaddr);
+        if(p != NULL) {
+          p->rank = INFINITE_RANK;
+          /* Trigger DAG rank recalculation. */
+          p->updated = 1;
+        }
+      }
     }
   }
 }
@@ -203,10 +207,17 @@ rpl_ipv6_neighbor_callback(uip_ds6_nbr_t *nbr)
 void
 rpl_init(void)
 {
+  uip_ipaddr_t rplmaddr;
   PRINTF("RPL started\n");
+  default_instance = NULL;
 
   rpl_reset_periodic_timer();
   neighbor_info_subscribe(rpl_link_neighbor_callback);
+
+  /* add rpl multicast address */
+  uip_create_linklocal_rplnodes_mcast(&rplmaddr);
+  uip_ds6_maddr_add(&rplmaddr);
+
 #if RPL_CONF_STATS
   memset(&rpl_stats, 0, sizeof(rpl_stats));
 #endif

@@ -43,13 +43,12 @@ import org.jdom.Element;
 import se.sics.cooja.ClassDescription;
 import se.sics.cooja.Mote;
 import se.sics.cooja.RadioConnection;
-import se.sics.cooja.Simulation;
 import se.sics.cooja.SimEventCentral.MoteCountListener;
+import se.sics.cooja.Simulation;
 import se.sics.cooja.interfaces.Position;
 import se.sics.cooja.interfaces.Radio;
 import se.sics.cooja.plugins.Visualizer;
 import se.sics.cooja.plugins.skins.UDGMVisualizerSkin;
-import se.sics.cooja.radiomediums.DirectedGraphMedium.DestinationRadio;
 
 /**
  * The Unit Disk Graph Radio Medium abstracts radio transmission range as circles.
@@ -145,11 +144,16 @@ public class UDGM extends AbstractRadioMedium {
     }
     dgrm.requestEdgeAnalysis();
 
-    /* Register visualizer skin.
-     * TODO Should be unregistered when radio medium is removed */
+    /* Register visualizer skin */
     Visualizer.registerVisualizerSkin(UDGMVisualizerSkin.class);
   }
 
+  public void removed() {
+  	super.removed();
+  	
+		Visualizer.unregisterVisualizerSkin(UDGMVisualizerSkin.class);
+  }
+  
   public void setTxRange(double r) {
     TRANSMITTING_RANGE = r;
     dgrm.requestEdgeAnalysis();
@@ -184,7 +188,6 @@ public class UDGM extends AbstractRadioMedium {
     Position senderPos = sender.getPosition();
     for (DestinationRadio dest: potentialDestinations) {
       Radio recv = dest.radio;
-      Position recvPos = recv.getPosition();
 
       /* Fail if radios are on different (but configured) channels */ 
       if (sender.getChannel() >= 0 &&
@@ -192,6 +195,7 @@ public class UDGM extends AbstractRadioMedium {
           sender.getChannel() != recv.getChannel()) {
         continue;
       }
+      Position recvPos = recv.getPosition();
 
       /* Fail if radio is turned off */
 //      if (!recv.isReceiverOn()) {
@@ -211,7 +215,7 @@ public class UDGM extends AbstractRadioMedium {
       if (distance <= moteTransmissionRange) {
         /* Within transmission range */
 
-        if (!recv.isReceiverOn()) {
+        if (!recv.isRadioOn()) {
           newConnection.addInterfered(recv);
           recv.interfereAnyReception();
         } else if (recv.isInterfered()) {
@@ -283,6 +287,12 @@ public class UDGM extends AbstractRadioMedium {
         conn.getSource().setCurrentSignalStrength(SS_STRONG);
       }
       for (Radio dstRadio : conn.getDestinations()) {
+        if (conn.getSource().getChannel() >= 0 &&
+            dstRadio.getChannel() >= 0 &&
+            conn.getSource().getChannel() != dstRadio.getChannel()) {
+          continue;
+        }
+
         double dist = conn.getSource().getPosition().getDistanceTo(dstRadio.getPosition());
 
         double maxTxDist = TRANSMITTING_RANGE
@@ -299,6 +309,12 @@ public class UDGM extends AbstractRadioMedium {
     /* Set signal strength to below weak on interfered */
     for (RadioConnection conn : conns) {
       for (Radio intfRadio : conn.getInterfered()) {
+        if (conn.getSource().getChannel() >= 0 &&
+            intfRadio.getChannel() >= 0 &&
+            conn.getSource().getChannel() != intfRadio.getChannel()) {
+          continue;
+        }
+
         double dist = conn.getSource().getPosition().getDistanceTo(intfRadio.getPosition());
 
         double maxTxDist = TRANSMITTING_RANGE
@@ -365,7 +381,7 @@ public class UDGM extends AbstractRadioMedium {
       /* Backwards compatibility */
       if (element.getName().equals("success_ratio")) {
         SUCCESS_RATIO_TX = Double.parseDouble(element.getText());
-        logger.warn("Loading old COOJA Config, XML element \"sucess_ratio\" parsed at \"sucess_ratio_tx\"");
+        logger.warn("Loading old Cooja Config, XML element \"sucess_ratio\" parsed at \"sucess_ratio_tx\"");
       }
 
       if (element.getName().equals("success_ratio_tx")) {

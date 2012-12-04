@@ -50,7 +50,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.lang.reflect.Constructor;
-import java.util.Properties;
+import java.util.HashMap;
 
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -66,11 +66,12 @@ import javax.swing.JScrollPane;
 
 import se.sics.cooja.CoreComm;
 import se.sics.cooja.GUI;
-import se.sics.cooja.SectionMoteMemory;
 import se.sics.cooja.MoteType.MoteTypeCreationException;
+import se.sics.cooja.SectionMoteMemory;
 import se.sics.cooja.contikimote.ContikiMoteType;
 
 /* TODO Test common section */
+/* TODO Test readonly section */
 
 public class ConfigurationWizard extends JDialog {
   private static final long serialVersionUID = 1L;
@@ -82,10 +83,10 @@ public class ConfigurationWizard extends JDialog {
     "-mno-cygwin -Wall -I'$(JAVA_HOME)/include' -I'$(JAVA_HOME)/include/win32'",
     "-Wall -D_JNI_IMPLEMENTATION_ -I'$(JAVA_HOME)/include' -I'$(JAVA_HOME)/include/win32'",
     "-mno-cygwin -I'$(JAVA_HOME)/include' -I'$(JAVA_HOME)/include/win32'",
-    
+
     "Linux:",
     "-I'$(JAVA_HOME)/include' -I'$(JAVA_HOME)/include/linux' -fno-builtin-printf -fPIC",
-    
+
     "Mac OS X:",
     "-Wall -I/System/Library/Frameworks/JavaVM.framework/Versions/CurrentJDK/Headers -dynamiclib -fno-common"
   };
@@ -130,7 +131,7 @@ public class ConfigurationWizard extends JDialog {
 
   private static final String OPTION_RUN_TEST = "Run test";
   private static final String OPTION_NEXT_TEST = "Next test";
-  private static final String OPTION_CLOSE_WIZARD = "Close Wizard";
+  private static final String OPTION_CLOSE_WIZARD = "Close wizard";
 
   private static final String testTemplate = "test_template.c";
 
@@ -141,7 +142,7 @@ public class ConfigurationWizard extends JDialog {
   private static File cLibraryFile;
   private static String javaLibraryName;
   private static CoreComm javaLibrary;
-  private static Properties addresses;
+  private static HashMap<String, Integer> addresses;
   private static int relDataSectionAddr;
   private static int dataSectionSize;
   private static int relBssSectionAddr;
@@ -188,14 +189,14 @@ public class ConfigurationWizard extends JDialog {
   public static boolean showWizardInfo(Container parent, GUI gui) {
     String options[] = {"Start tests", OPTION_CLOSE_WIZARD};
     int value = JOptionPane.showOptionDialog(parent,
-        "This wizard configures and tests your toolchain for simulating Contiki motes in COOJA.\n" +
+        "This wizard configures and tests your toolchain for simulation of Cooja motes.\n" +
         "Throughout the wizard, Contiki libraries are compiled and loaded while allowing you to \n" +
         "alter external tools settings such as compiler arguments.\n" +
         "\n" +
         "Changes made in this wizard are reflected in menu Settings, External tools paths.\n" +
         "\n" +
-        "NOTE: You do not need to complete this wizard for emulating motes, such as Sky motes.\n",
-        "Configuration Wizard",
+        "NOTE: You do not need to complete this wizard for emulated motes, such as Sky motes.\n",
+        "Cooja mote configuration wizard",
         JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE,
         null, options, options[0]);
 
@@ -212,7 +213,7 @@ public class ConfigurationWizard extends JDialog {
     while (value.equals(OPTION_RUN_TEST)) {
       value = showStepDialog(
           parent,
-          "Generates, compiles and links a COOJA/Contiki stub.\n",
+          "Generates, compiles and links a Cooja/Contiki stub.\n",
           testDescription,
           new String[] {
               "COMPILER_ARGS", "LINK_COMMAND_1", "LINK_COMMAND_2", "AR_COMMAND_1", "AR_COMMAND_2"
@@ -377,8 +378,8 @@ public class ConfigurationWizard extends JDialog {
     while (value.equals(OPTION_RUN_TEST)) {
       value = showStepDialog(
           parent,
-          "Tests copying memory sections between Contiki and COOJA.\n" +
-          "Variable values are both altered in Contiki and in COOJA.\n" +
+          "Tests copying memory sections between Contiki and Cooja.\n" +
+          "Variable values are both altered in Contiki and in Cooja.\n" +
           "\n" +
           "This is the final test!\n",
           testDescription,
@@ -534,6 +535,7 @@ public class ConfigurationWizard extends JDialog {
 
     /* Show dialog */
     JDialog dialog = optionPane.createDialog(parent, title);
+    dialog.setResizable(true);
     dialog.setVisible(true);
     return (String) optionPane.getValue();
   }
@@ -756,7 +758,7 @@ public class ConfigurationWizard extends JDialog {
     }
 
     testOutput.addMessage("### Parsing map file data for addresses");
-    addresses = new Properties();
+    addresses = new HashMap<String, Integer>();
     boolean parseOK = ContikiMoteType.parseMapFileData(mapData, addresses);
     if (!parseOK) {
       testOutput.addMessage("### Error: Failed parsing map file data", MessageList.ERROR);
@@ -836,7 +838,7 @@ public class ConfigurationWizard extends JDialog {
     }
 
     testOutput.addMessage("### Parsing command output for addresses");
-    addresses = new Properties();
+    addresses = new HashMap<String, Integer>();
     boolean parseOK = ContikiMoteType.parseCommandData(commandData, addresses);
     if (!parseOK) {
       testOutput.addMessage("### Error: Failed parsing command output", MessageList.ERROR);
@@ -930,11 +932,11 @@ public class ConfigurationWizard extends JDialog {
     testOutput.addMessage("### Testing Contiki library memory replacement");
 
     testOutput.addMessage("### Configuring Contiki using parsed reference address");
-    int relRefAddress = (Integer) addresses.get("ref_var");
-    if (!addresses.containsKey("ref_var")) {
-      testOutput.addMessage("Could not find address of ref_var", MessageList.ERROR);
+    if (!addresses.containsKey("referenceVar")) {
+      testOutput.addMessage("Could not find address of referenceVar", MessageList.ERROR);
       return false;
     }
+    int relRefAddress = addresses.get("referenceVar");
     javaLibrary.setReferenceAddress(relRefAddress);
 
     testOutput.addMessage("### Creating data and BSS memory sections");
@@ -942,7 +944,7 @@ public class ConfigurationWizard extends JDialog {
     byte[] initialBssSection = new byte[bssSectionSize];
     javaLibrary.getMemory(relDataSectionAddr, dataSectionSize, initialDataSection);
     javaLibrary.getMemory(relBssSectionAddr, bssSectionSize, initialBssSection);
-    SectionMoteMemory memory = new SectionMoteMemory(addresses);
+    SectionMoteMemory memory = new SectionMoteMemory(addresses, 0);
     memory.setMemorySegment(relDataSectionAddr, initialDataSection);
     memory.setMemorySegment(relBssSectionAddr, initialBssSection);
 

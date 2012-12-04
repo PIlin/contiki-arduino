@@ -30,7 +30,7 @@
  * This file is part of libmc1322x: see http://mc1322x.devl.org
  * for details. 
  *
- * $Id: maca.c,v 1.7 2011/01/17 15:49:17 maralvira Exp $
+ *
  */
 
 #include <mc1322x.h>
@@ -72,6 +72,14 @@
 #define CPL_TIMEOUT (2*128*CLK_PER_BYTE) 
 #endif
 
+#ifndef MACA_INSERT_ACK
+#define MACA_INSERT_ACK 1
+#endif
+
+/* Bit in first byte of 802.15.4 message that indicates an */
+/* acknowledgereply frame is expected */
+#define MAC_ACK_REQUEST_FLAG 0x20
+
 #define reg(x) (*(volatile uint32_t *)(x))
 
 int count_packets(void);
@@ -102,6 +110,7 @@ enum posts {
 static volatile uint8_t last_post = NO_POST;
 
 volatile uint8_t fcs_mode = USE_FCS; 
+volatile uint8_t prm_mode = PROMISC;
 
 /* call periodically to */
 /* check that maca_entry is changing */
@@ -149,7 +158,7 @@ void check_maca(void) {
 
 #if DEBUG_MACA
 	if((count = count_packets()) != NUM_PACKETS) {
-		PRINTF("check maca: count_packets %d\n", count);
+		PRINTF("check maca: count_packets %d\n", (int)count);
 		Print_Packets("check_maca");
 #if PACKET_STATS
 		for(i=0; i<NUM_PACKETS; i++) {
@@ -172,6 +181,8 @@ void maca_init(void) {
 	radio_init();
 	flyback_init();
 	init_phy();
+	set_channel(0); /* things get weird if you never set a channel */
+	set_power(0);   /* set the power too --- who knows what happens if you don't */
 	free_head = 0; tx_head = 0; rx_head = 0; rx_end = 0; tx_end = 0; dma_tx = 0; dma_rx = 0;
 	free_all_packets();
 
@@ -181,7 +192,9 @@ void maca_init(void) {
 	
 	/* initial radio command */
         /* nop, promiscuous, no cca */
-	*MACA_CONTROL = (1 << PRM) | (NO_CCA << MODE); 
+	*MACA_CONTROL =
+		(prm_mode << PRM) |
+		(NO_CCA << MACA_MODE);
 	
 	enable_irq(MACA);
 	*INTFRC = (1 << INT_NUM_MACA);
@@ -364,8 +377,10 @@ void post_receive(void) {
 	*MACA_CONTROL = ( (1 << maca_ctrl_asap) | 
 			  ( 4 << PRECOUNT) |
 			  ( fcs_mode << NOFC ) |
+			  ( prm_mode << PRM) |
+#if 0 //dak says removing ctrl auto fixes the autoack checksum error --- doesn't cause a performance issue either
 			  (1 << maca_ctrl_auto) |
-			  (1 << maca_ctrl_prm) |
+#endif
 			  (maca_ctrl_seq_rx));
 	/* status bit 10 is set immediately */
         /* then 11, 10, and 9 get set */ 
@@ -405,7 +420,8 @@ void post_tx(void) {
 #if PACKET_STATS
 	dma_tx->post_tx++;
 #endif
-	*MACA_TXLEN = (uint32_t)((dma_tx->length) + 2);
+	*MACA_TXSEQNR = dma_tx->data[2];
+	*MACA_TXLEN = (uint32_t)((dma_tx->length) + 2) | (3 << 16); /* set rx len to ACK length */
 	*MACA_DMATX = (uint32_t)&(dma_tx->data[ 0 + dma_tx->offset]);
 	if(dma_rx == 0) {
 		dma_rx = get_free_packet();
@@ -429,7 +445,8 @@ void post_tx(void) {
 	*MACA_TMREN = (1 << maca_tmren_cpl);
 	
 	enable_irq(MACA);
-	*MACA_CONTROL = ( (1 << maca_ctrl_prm) | ( 4 << PRECOUNT) |
+	*MACA_CONTROL = ( ( 4 << PRECOUNT) |
+			  ( prm_mode << PRM) |
 			  (maca_ctrl_mode_no_cca << maca_ctrl_mode) |
 			  (1 << maca_ctrl_asap) |
 			  (maca_ctrl_seq_tx));	
@@ -527,6 +544,32 @@ void add_to_rx(volatile packet_t *p) {
 	return;
 }
 
+void insert_at_rx_head(volatile packet_t *p) {
+	safe_irq_disable(MACA);
+
+	BOUND_CHECK(p);
+
+	if(!p) {  PRINTF("insert_at_rx_head passed packet 0\n\r"); return; }
+	p->offset = 1; /* first byte is the length */
+	if(rx_head == 0) {
+		/* start a new queue if empty */
+		rx_end = p;
+		rx_end->left = 0; rx_end->right = 0;
+		rx_head = rx_end;
+	} else {
+		rx_head->right = p;
+		p->left = rx_head;
+		rx_head = p; rx_head->left = 0;
+	}
+
+//	print_packets("insert at rx head");
+	irq_restore();
+	if(bit_is_set(*NIPEND, INT_NUM_MACA)) { *INTFRC = (1 << INT_NUM_MACA); }
+
+	return;
+}
+
+
 void decode_status(void) {
 	volatile uint32_t code;
 	
@@ -537,21 +580,21 @@ void decode_status(void) {
 	{
 	case ABORTED:
 	{
-//		PRINTF("maca: aborted\n\r");
+		PRINTF("maca: aborted\n\r");
 		ResumeMACASync();
 		break;
 		
 	}
 	case NOT_COMPLETED:
 	{
-//		PRINTF("maca: not completed\n\r");
+		PRINTF("maca: not completed\n\r");
 		ResumeMACASync();
 		break;
 		
 	}
 	case CODE_TIMEOUT:
 	{
-//		PRINTF("maca: timeout\n\r");
+		PRINTF("maca: timeout\n\r");
 		ResumeMACASync();
 		break;
 		
@@ -565,7 +608,7 @@ void decode_status(void) {
 	}
 	case EXT_TIMEOUT:
 	{
-//		PRINTF("maca: ext timeout\n\r");
+		PRINTF("maca: ext timeout\n\r");
 		ResumeMACASync();
 		break;
 		
@@ -584,7 +627,7 @@ void decode_status(void) {
 	}
 	default:
 	{
-		PRINTF("status: %x", *MACA_STATUS);
+		PRINTF("status: %x", (unsigned int)*MACA_STATUS);
 		ResumeMACASync();
 		
 	}
@@ -610,8 +653,18 @@ void maca_isr(void) {
 		*MACA_CLRIRQ = (1 << maca_irq_di);
 		dma_rx->length = *MACA_GETRXLVL - 2; /* packet length does not include FCS */
 		dma_rx->lqi = get_lqi();
-//		PRINTF("maca data ind %x %d\n\r", dma_rx, dma_rx->length);
+		dma_rx->rx_time = *MACA_TIMESTAMP;
+
+		/* check if received packet needs an ack */
+		if(prm_mode == AUTOACK && (dma_rx->data[1] & MAC_ACK_REQUEST_FLAG)) {
+			/* this wait is necessary to auto-ack */
+			volatile uint32_t wait_clk;
+			wait_clk = *MACA_CLK + 200;
+			while(*MACA_CLK < wait_clk) { continue; }
+		}
+
 		if(maca_rx_callback != 0) { maca_rx_callback(dma_rx); }
+
 		add_to_rx(dma_rx);
 		dma_rx = 0;
 	}
@@ -634,6 +687,33 @@ void maca_isr(void) {
 	if(action_complete_irq()) {
 		/* PRINTF("maca action complete %d\n\r", get_field(*MACA_CONTROL,SEQUENCE)); */
 		if(last_post == TX_POST) {
+			tx_head->status = get_field(*MACA_STATUS,CODE);
+
+#if MACA_INSERT_ACK
+/* Having sent a message with the acknowledge request flag set the
+ * MACA hardware will only give a tx success indication if the message
+ * was acknowledged by the remote node. We need to detect this
+ * condition and inject an ACK packet into the internal receive stream
+ * as the higher layers are expecting to see an ACK packet.*/
+
+			if(tx_head->status == SUCCESS && (tx_head->data[0] & MAC_ACK_REQUEST_FLAG)) {
+
+				/* Create the dummy ack packet */
+
+				static volatile packet_t *ack_p;
+				if(ack_p = get_free_packet()) {
+					ack_p->length = 3;
+					ack_p->offset = 1;
+					ack_p->data[0] = 3;
+					ack_p->data[1] = 0x02;
+					ack_p->data[2] = 0;
+					ack_p->data[3] = *MACA_TXSEQNR;
+					insert_at_rx_head(ack_p);
+				}
+
+			}
+#endif
+
 			if(maca_tx_callback != 0) { maca_tx_callback(tx_head); }
 			dma_tx = 0;
 			free_tx_head();
@@ -646,7 +726,7 @@ void maca_isr(void) {
 	decode_status();
 
 	if (*MACA_IRQ != 0)
-	{ PRINTF("*MACA_IRQ %x\n\r", *MACA_IRQ); }
+	{ PRINTF("*MACA_IRQ %x\n\r", (unsigned int)*MACA_IRQ); }
 
 	if(tx_head != 0) {
 		post_tx();
@@ -669,6 +749,9 @@ void init_phy(void)
 	*MACA_TXCCADELAY = 0x00000025;
 	*MACA_FRAMESYNC0 = 0x000000A7;
 	*MACA_CLK = 0x00000008;
+	*MACA_RXACKDELAY = 30;
+	*MACA_RXEND = 180;
+	*MACA_TXACKDELAY = 68; 
 	*MACA_MASKIRQ = ((1 << maca_irq_rst)    | 
 			 (1 << maca_irq_acpl)   | 
 			 (1 << maca_irq_cm)     |
@@ -902,7 +985,7 @@ void radio_init(void) {
         PRINTF("radio_init: ctov parameter 0x%02x\n\r",ram_values[3]);
         for(i=0; i<16; i++) {
                 ctov[i] = get_ctov(i,ram_values[3]);
-                PRINTF("radio_init: ctov[%d] = 0x%02x\n\r",i,ctov[i]);
+                PRINTF("radio_init: ctov[%d] = 0x%02x\n\r",(int)i,ctov[i]);
         }
 
 
@@ -1018,10 +1101,10 @@ const uint8_t VCODivI[16] = {
 	0x2f,
 	0x2f,
 	0x2f,
-	0x30,
-	0x30,
-	0x30,
 	0x2f,
+	0x30,
+	0x30,
+	0x30,
 	0x30,
 	0x30,
 	0x30,
@@ -1091,18 +1174,20 @@ uint32_t exec_init_entry(volatile uint32_t *entries, uint8_t *valbuf)
 	if(entries[0] <= ROM_END) {
 		if (entries[0] == 0) {
 			/* do delay command*/
-			PRINTF("init_entry: delay 0x%08x\n\r", entries[1]);
+			PRINTF("init_entry: delay 0x%08x\n\r", (unsigned int)entries[1]);
 			for(i=0; i<entries[1]; i++) { continue; }
 			return 2;
 		} else if (entries[0] == 1) {
 			/* do bit set/clear command*/
-			PRINTF("init_entry: bit set clear 0x%08x 0x%08x 0x%08x\n\r", entries[1], entries[2], entries[3]);
+			PRINTF("init_entry: bit set clear 0x%08x 0x%08x 0x%08x\n\r", (unsigned int)entries[1], (unsigned int)entries[2], (unsigned int)entries[3]);
 			reg(entries[2]) = (reg(entries[2]) & ~entries[1]) | (entries[3] & entries[1]);
 			return 4;
 		} else if ((entries[0] >= 16) &&
 			   (entries[0] < 0xfff1)) {
 			/* store bytes in valbuf */
-			PRINTF("init_entry: store in valbuf 0x%02x position %d\n\r", entries[1],(entries[0]>>4)-1);
+			PRINTF("init_entry: store in valbuf 0x%02x position %d\n\r", 
+			       (unsigned int)entries[1],
+			       (unsigned int)(entries[0]>>4)-1);
 			valbuf[(entries[0]>>4)-1] = entries[1];
 			return 2;
 		} else if (entries[0] == ENTRY_EOF) {
@@ -1110,12 +1195,14 @@ uint32_t exec_init_entry(volatile uint32_t *entries, uint8_t *valbuf)
 			return 0;
 		} else {
 			/* invalid command code */
-			PRINTF("init_entry: invaild code 0x%08x\n\r",entries[0]);
+			PRINTF("init_entry: invaild code 0x%08x\n\r",(unsigned int)entries[0]);
 			return 0;
 		}
 	} else { /* address isn't in ROM space */   
 		 /* do store value in address command  */
-		PRINTF("init_entry: address value pair - *0x%08x = 0x%08x\n\r",entries[0],entries[1]);
+		PRINTF("init_entry: address value pair - *0x%08x = 0x%08x\n\r",
+		       (unsigned int)entries[0],
+		       (unsigned int)entries[1]);
 		reg(entries[0]) = entries[1];
 		return 2;
 	}
@@ -1139,7 +1226,7 @@ uint32_t init_from_flash(uint32_t addr) {
 	PRINTF("nvm_read returned: 0x%02x\n\r",err);
 	
 	for(j=0; j<4; j++) {
-		PRINTF("0x%08x\n\r",buf[j]);
+		PRINTF("0x%08x\n\r",(unsigned int)buf[j]);
 	}
 
 	if(buf[0] == FLASH_INIT_MAGIC) {
@@ -1148,11 +1235,11 @@ uint32_t init_from_flash(uint32_t addr) {
 			err = nvm_read(gNvmInternalInterface_c, type, (uint8_t *)buf, addr+i, 32);
 			i += 4*exec_init_entry(buf, ram_values);
 		}
-		return i;
 	} else {
-		return 0;
+		i = 0;
 	}
- 	
+	nvm_setsvar(1);
+	return i;
 }
 
 /* 

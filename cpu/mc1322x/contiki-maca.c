@@ -30,7 +30,7 @@
  *
  * This file is part of the Contiki OS.
  *
- * $Id: contiki-maca.c,v 1.6 2010/11/07 20:07:42 maralvira Exp $
+ *
  */
 
 #include <stdint.h>
@@ -62,6 +62,7 @@
 #endif
 
 static volatile uint8_t tx_complete;
+static volatile uint8_t tx_status;
 
 /* contiki mac driver */
 
@@ -98,11 +99,11 @@ static process_event_t event_data_ready;
 static volatile packet_t prepped_p;
 
 int contiki_maca_init(void) {
-	trim_xtal();
-	vreg_init();
-	contiki_maca_init();
-	set_channel(0); /* channel 11 */
-	set_power(0x12); /* 0x12 is the highest, not documented */
+//	trim_xtal();
+//	vreg_init();
+//	contiki_maca_init();
+//	set_channel(0); /* channel 11 */
+//	set_power(0x12); /* 0x12 is the highest, not documented */
 	return 1;
 }
 
@@ -155,6 +156,8 @@ int contiki_maca_read(void *buf, unsigned short bufsize) {
 		PRINTF(": p->length 0x%0x bufsize 0x%0x \n\r", p->length, bufsize);
 		if((p->length) < bufsize) bufsize = (p->length);
 		memcpy(buf, (uint8_t *)(p->data + p->offset), bufsize);
+		packetbuf_set_attr(PACKETBUF_ATTR_LINK_QUALITY,p->lqi);
+		packetbuf_set_attr(PACKETBUF_ATTR_TIMESTAMP,p->rx_time);
 #if CONTIKI_MACA_DEBUG
 		for( i = p->offset ; i < (bufsize + p->offset) ; i++) {
 			PRINTF(" %02x",p->data[i]);
@@ -226,8 +229,6 @@ int contiki_maca_transmit(unsigned short transmit_len) {
 
 #if BLOCKING_TX
 	/* block until tx_complete, set by contiki_maca_tx_callback */
-	/* there are many places in contiki that rely on the */
-	/* transmit call to block */
  	while(!tx_complete && (tx_head != 0));
 #endif	
 }
@@ -235,7 +236,18 @@ int contiki_maca_transmit(unsigned short transmit_len) {
 int contiki_maca_send(const void *payload, unsigned short payload_len) {
 	contiki_maca_prepare(payload, payload_len);
 	contiki_maca_transmit(payload_len);
-	return RADIO_TX_OK;
+	switch(tx_status) {
+	case SUCCESS:
+	case CRC_FAILED: /* CRC_FAILED is usually an ack */
+		PRINTF("TXOK\n\r");
+		return RADIO_TX_OK;
+	case NO_ACK:
+		PRINTF("NOACK\n\r");
+		return RADIO_TX_NOACK;
+	default:
+		PRINTF("TXERR\n\r");
+		return RADIO_TX_ERR;
+	}
 }
 
 PROCESS(contiki_maca_process, "maca process");
@@ -247,17 +259,17 @@ PROCESS_THREAD(contiki_maca_process, ev, data)
  	PROCESS_BEGIN();
 
 	while (1) {
-		PROCESS_PAUSE();
+		PROCESS_YIELD();
 
 		/* check if there is a request to turn the radio on or off */
 		if(contiki_maca_request_on == 1) {
 			contiki_maca_request_on = 0;
-			maca_on();
+//			maca_on();
  		}
 
 		if(contiki_maca_request_off == 1) {
 			contiki_maca_request_off = 0;
-			maca_off();
+//			maca_off();
  		}
 
 		if (rx_head != NULL) {
@@ -268,14 +280,24 @@ PROCESS_THREAD(contiki_maca_process, ev, data)
 				NETSTACK_RDC.input();
 			}
 		}
+                /* Call ourself again to handle remaining packets in the queue */
+		if (rx_head != NULL) {
+			process_poll(&contiki_maca_process);
+		}
 		
  	};
 	
  	PROCESS_END();
 }
 
+void maca_rx_callback(volatile packet_t *p __attribute((unused))) {
+	process_poll(&contiki_maca_process);
+}
+
+
 #if BLOCKING_TX
 void maca_tx_callback(volatile packet_t *p __attribute((unused))) {
 	tx_complete = 1;
+	tx_status = p->status;
 }
 #endif

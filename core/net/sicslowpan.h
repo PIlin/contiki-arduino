@@ -183,9 +183,9 @@
  * offset field is just not used
  */
 /* struct sicslowpan_frag_hdr { */
-/*   u16_t dispatch_size; */
-/*   u16_t tag; */
-/*   u8_t offset; */
+/*   uint16_t dispatch_size; */
+/*   uint16_t tag; */
+/*   uint8_t offset; */
 /* }; */
 
 /**
@@ -197,21 +197,21 @@
  * structure
  */
 /* struct sicslowpan_hc1_hdr { */
-/*   u8_t dispatch; */
-/*   u8_t encoding; */
-/*   u8_t ttl; */
+/*   uint8_t dispatch; */
+/*   uint8_t encoding; */
+/*   uint8_t ttl; */
 /* }; */
 
 /**
  * \brief HC1 followed by HC_UDP
  */
 /* struct sicslowpan_hc1_hc_udp_hdr { */
-/*   u8_t dispatch; */
-/*   u8_t hc1_encoding; */
-/*   u8_t hc_udp_encoding; */
-/*   u8_t ttl; */
-/*   u8_t ports; */
-/*   u16_t udpchksum; */
+/*   uint8_t dispatch; */
+/*   uint8_t hc1_encoding; */
+/*   uint8_t hc_udp_encoding; */
+/*   uint8_t ttl; */
+/*   uint8_t ports; */
+/*   uint16_t udpchksum; */
 /* }; */
 
 /**
@@ -219,9 +219,9 @@
  * each context can have upto 8 bytes
  */
 struct sicslowpan_addr_context {
-  u8_t used; /* possibly use as prefix-length */
-  u8_t number;
-  u8_t prefix[8];
+  uint8_t used; /* possibly use as prefix-length */
+  uint8_t number;
+  uint8_t prefix[8];
 };
 
 /**
@@ -233,20 +233,22 @@ struct sicslowpan_addr_context {
  * \brief check whether we can compress the IID in
  * address 'a' to 16 bits.
  * This is used for unicast addresses only, and is true
- * if first 49 bits of IID are 0
+ * if the address is on the format <PREFIX>::0000:00ff:fe00:XXXX
+ * NOTE: we currently assume 64-bits prefixes
  */
 #define sicslowpan_is_iid_16_bit_compressable(a) \
   ((((a)->u16[4]) == 0) &&                       \
-   (((a)->u16[5]) == 0) &&                       \
-   (((a)->u16[6]) == 0) &&                       \
-   ((((a)->u8[14]) & 0x80) == 0))
+   (((a)->u8[10]) == 0)&&			    \
+   (((a)->u8[11]) == 0xff)&&			    \
+   (((a)->u8[12]) == 0xfe)&&			    \
+   (((a)->u8[13]) == 0))
 
 /**
  * \brief check whether the 9-bit group-id of the
  * compressed multicast address is known. It is true
  * if the 9-bit group is the all nodes or all routers
  * group.
- * \param a is typed u8_t *
+ * \param a is typed uint8_t *
  */
 #define sicslowpan_is_mcast_addr_decompressable(a) \
    (((*a & 0x01) == 0) &&                           \
@@ -319,6 +321,5 @@ struct sicslowpan_nh_compressor {
 
 extern const struct network_driver sicslowpan_driver;
 
-extern const struct mac_driver *sicslowpan_mac;
 #endif /* __SICSLOWPAN_H__ */
 /** @} */

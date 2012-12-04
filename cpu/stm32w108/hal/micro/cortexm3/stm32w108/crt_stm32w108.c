@@ -20,36 +20,10 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #define RESERVED 0
-//#define DUMMY_MALLOC
-
+#define IAP_BOOTLOADER_APP_SWITCH_SIGNATURE  0xb001204d
+#define IAP_BOOTLOADER_MODE_UART  0
 /* Includes ----------------------------------------------------------------------*/
 #include PLATFORM_HEADER
-void NMI_Handler(void);
-void HardFault_Handler(void);
-void MemManage_Handler(void);
-void BusFault_Handler(void);
-void UsageFault_Handler(void);
-void SVC_Handler(void);
-void DebugMonitor_Handler(void);
-void PendSV_Handler(void);
-void SysTick_Handler(void);
-void halTimer1Isr(void);
-void halTimer2Isr(void);
-void halManagementIsr(void);
-void halBaseBandIsr(void);
-void halSleepTimerIsr(void);
-void halSc1Isr(void);
-void halSc2Isr(void);
-void halSecurityIsr(void);
-void halStackMacTimerIsr(void);
-void stmRadioTransmitIsr(void);
-void stmRadioReceiveIsr(void);
-void halAdcIsr(void);
-void halIrqAIsr(void);
-void halIrqBIsr(void);
-void halIrqCIsr(void);
-void halIrqDIsr(void);
-void halDebugIsr(void);
 
 /* Exported types --------------------------------------------------------------*/
 /* Exported constants --------------------------------------------------------*/
@@ -61,7 +35,7 @@ extern unsigned long _edata;		/* end address for the .data section. defined in l
 extern unsigned long _sbss;			/* start address for the .bss section. defined in linker script */
 extern unsigned long _ebss;			/* end address for the .bss section. defined in linker script */
 
-extern void _estack;		/* init value for the stack pointer. defined in linker script */
+extern unsigned long _estack;		/* init value for the stack pointer. defined in linker script */
 
 #include "hal/micro/cortexm3/memmap.h"
 VAR_AT_SEGMENT(const HalFixedAddressTableType halFixedAddressTable, __FAT__);
@@ -72,6 +46,50 @@ VAR_AT_SEGMENT(const HalFixedAddressTableType halFixedAddressTable, __FAT__);
 /* function prototypes ------------------------------------------------------*/
 void Reset_Handler(void) __attribute__((__interrupt__));
 extern int main(void);
+extern void  halInternalSwitchToXtal(void);
+/*******************************************************************************
+*
+* Provide weak aliases for each Exception handler to the Default_Handler.
+* As they are weak aliases, any function with the same name will override
+* this definition.
+*
+*******************************************************************************/
+
+/* Weak definitions of handlers point to Default_Handler if not implemented */
+void NMI_Handler() __attribute__ ((weak, alias("Default_Handler")));
+void HardFault_Handler() __attribute__ ((weak, alias("Default_Handler")));
+void MemManage_Handler() __attribute__ ((weak, alias("Default_Handler")));
+void BusFault_Handler() __attribute__ ((weak, alias("Default_Handler")));
+void UsageFault_Handler() __attribute__ ((weak, alias("Default_Handler")));
+void SVC_Handler() __attribute__ ((weak, alias("Default_Handler")));
+void DebugMonitor_Handler() __attribute__ ((weak, alias("Default_Handler")));
+void PendSV_Handler() __attribute__ ((weak, alias("Default_Handler")));
+void SysTick_Handler() __attribute__ ((weak, alias("Default_Handler")));
+void halTimer1Isr() __attribute__ ((weak, alias("Default_Handler")));
+void halTimer2Isr() __attribute__ ((weak, alias("Default_Handler")));
+void halManagementIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halBaseBandIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halSleepTimerIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halSc1Isr() __attribute__ ((weak, alias("Default_Handler")));
+void halSc2Isr() __attribute__ ((weak, alias("Default_Handler")));
+void halSecurityIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halStackMacTimerIsr() __attribute__ ((weak, alias("Default_Handler")));
+void stmRadioTransmitIsr() __attribute__ ((weak, alias("Default_Handler")));
+void stmRadioReceiveIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halAdcIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halIrqAIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halIrqBIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halIrqCIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halIrqDIsr() __attribute__ ((weak, alias("Default_Handler")));
+void halDebugIsr() __attribute__ ((weak, alias("Default_Handler")));
+
+void __attribute__ ((weak)) Default_Handler()
+{
+	/* Hang here */
+	while(1)
+	{
+	}
+}
 
 
 /******************************************************************************
@@ -86,7 +104,7 @@ extern int main(void);
 __attribute__ ((section(".isr_vector")))
 void (* const g_pfnVectors[])(void) =
 {
-  &_estack,            // The initial stack pointer
+  (void (*)(void))&_estack,            // The initial stack pointer
   Reset_Handler,             // 1 The reset handler
   NMI_Handler,              // 2
   HardFault_Handler,         // 3
@@ -119,6 +137,20 @@ void (* const g_pfnVectors[])(void) =
   halIrqCIsr,                // 30
   halIrqDIsr,                // 31
   halDebugIsr,               // 32
+};
+
+static  void setStackPointer(int32u address) __attribute__((noinline));
+static void setStackPointer(int32u address)
+{
+  // This code is needed to generate the instruction below
+  // that GNU ASM is refusing to add
+  // asm("MOVS SP, r0");
+  asm(".short 0x4685");
+}
+
+static const int16u blOffset[] = {
+  0x0715 - 0x03ad - 0x68,
+  0x0719 - 0x03ad - 0x6C
 };
 
 /*******************************************************************************
@@ -244,6 +276,21 @@ void Reset_Handler(void)
     while(1) { ; }
   }
 
+  //USART bootloader software activation check
+  if ((*((int32u *)RAM_BOTTOM) == IAP_BOOTLOADER_APP_SWITCH_SIGNATURE) && (*((int8u *)(RAM_BOTTOM+4)) == IAP_BOOTLOADER_MODE_UART)){
+    int8u cut = *(volatile int8u *) 0x08040798;
+    int16u offset = 0;
+    typedef void (*EntryPoint)(void);     
+    offset = (halFixedAddressTable.baseTable.version == 3) ? blOffset[cut - 2] : 0;
+    *((int32u *)RAM_BOTTOM) = 0;
+    if (offset) {
+      halInternalSwitchToXtal();
+    }
+    EntryPoint entryPoint = (EntryPoint)(*(int32u *)(FIB_BOTTOM+4) - offset);
+    setStackPointer(*(int32u *)FIB_BOTTOM);
+    entryPoint();
+  }
+
   INTERRUPTS_OFF();
   asm("CPSIE i");
 
@@ -302,12 +349,10 @@ caddr_t _sbrk ( int incr )
   return (caddr_t) prev_heap;
 }
 #else
-# ifdef DUMMY_MALLOC
 caddr_t _sbrk ( int incr )
 {
     return NULL;
 }
-# endif
 #endif
 int _lseek (int file,
 	int ptr,

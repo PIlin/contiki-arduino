@@ -89,12 +89,10 @@ void rime_input(void);
 
 int rime_output(struct channel *c);
 
-extern const struct mac_driver *rime_mac;
-
 struct rime_sniffer {
   struct rime_sniffer *next;
   void (* input_callback)(void);
-  void (* output_callback)(void);
+  void (* output_callback)(int mac_status);
 };
 
 #define RIME_SNIFFER(name, input_callback, output_callback) \

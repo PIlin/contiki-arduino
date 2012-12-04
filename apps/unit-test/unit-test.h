@@ -88,7 +88,7 @@ typedef struct unit_test {
  *
  * \param name The name of the unit test.
  */
-#define UNIT_TEST(name) unit_test_result_t unit_test_function_##name(unit_test_t *utp)
+#define UNIT_TEST(name) static void unit_test_function_##name(unit_test_t *utp)
 
 /**
  * Mark the starting point of the unit test function.
@@ -103,8 +103,7 @@ typedef struct unit_test {
  */
 #define UNIT_TEST_END() UNIT_TEST_SUCCEED();                                  \
                         unit_test_end:                                        \
-                          utp->end = RTIMER_NOW();                            \
-                          return utp->result;
+                          utp->end = RTIMER_NOW()
 
 /*
  * The test result is printed with a function that is selected by 
@@ -173,6 +172,17 @@ typedef struct unit_test {
                                    UNIT_TEST_FAIL();                          \
                                  }                                            \
                                } while(0)
+
+/**
+ * Obtain the result of a certain unit test.
+ *
+ * If the unit test has not yet been executed, this macro returns 
+ * unit_test_failed. Otherwise it returns the result of the last
+ * execution of the unit test.
+ *
+ * \param name The name of the unit test.
+ */
+#define UNIT_TEST_RESULT(name) (unit_test_##name.result)
 
 /* The default print function. */
 void unit_test_print_report(const unit_test_t *utp);

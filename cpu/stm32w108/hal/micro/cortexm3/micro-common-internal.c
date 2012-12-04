@@ -46,7 +46,6 @@ void stCalibrateVref(void)
   // Calibrate Vref by measuring a known voltage, Vdd/2.
   //
   // FIXME: add support for calibration if done in boost mode.
-  extern int16u stmRadioTxPowerMode;
   tokTypeMfgAnalogueTrimBoth biasTrim;
   
   halCommonGetMfgToken(&biasTrim, TOKEN_MFG_ANALOG_TRIM_BOTH);
@@ -250,7 +249,7 @@ void halInternalSetRegTrim(boolean boostMode)
 //       the accuracy of OSCHF (much lower than XTAL).
 void halCommonDelayMicroseconds(int16u us)
 {
-  int32u beginTime = MAC_TIMER;
+  int32u beginTime = ReadRegister(MAC_TIMER);
   
   //If we're not using the XTAL, the MAC Timer is running off OSCHF,
   //that means the clock is half speed, 6MHz.  We need to halve our delay

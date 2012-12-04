@@ -51,6 +51,8 @@
 
 #include <stdint.h>
 
+#define PLATFORM_NAME  "Econotag"
+#define PLATFORM_TYPE  MC1322X
 /* mc1322x files */
 #include "contiki-mc1322x-conf.h"
 /* this is from cpu/mc1322x/board */
@@ -62,17 +64,20 @@
 /* FIXME setting this will break the sensor button (and other gpio) */
 /* since leds_arch hits the entire gpio_data */
 #define BLINK_SECONDS 0
+/* Set to 1 to sample an ADC channel every second, 9 second refresh */
+/* Set >1 to sample an ADC channel every tick, 90 msec refresh  */
+#define CLOCK_CONF_SAMPLEADC 1
 
 #define CCIF
 #define CLIF
 
 /* Baud rate */
-#define MOD 9999
+#define BRMOD 9999
 /*  230400 bps, INC=767, MOD=9999, 24Mhz 16x samp */
 /*  115200 bps, INC=767, MOD=9999, 24Mhz 8x samp */
-#define INC 767  
+#define BRINC 767  
 /*  921600 bps, MOD=9999, 24Mhz 16x samp */
-//#define INC 3071 
+//#define BRINC 3071 
 #define SAMP UCON_SAMP_8X
 //#define SAMP UCON_SAMP_16X
 
@@ -84,11 +89,26 @@
 #define CONTIKI_MACA_RAW_MODE       0
 #define USE_32KHZ_XTAL              0
 
-#define BLOCKING_TX 0
+#define BLOCKING_TX 1
+#define MACA_AUTOACK 1
+#define NULLRDC_CONF_802154_AUTOACK_HW 1
+
+#define USE_WDT 0
+
+#ifndef WDT_TIMEOUT
+#define WDT_TIMEOUT 5000 /* watchdog timeout in ms */
+#endif
 
 /* end of mc1322x specific config. */
 
 /* start of conitki config. */
+#define PLATFORM_HAS_LEDS 1
+#define PLATFORM_HAS_BUTTON 1
+
+/* Core rtimer.h defaults to 16 bit timer unless RTIMER_CLOCK_LT is defined */
+typedef unsigned long rtimer_clock_t;
+#define RTIMER_CLOCK_LT(a,b)     ((signed long)((a)-(b)) < 0)
+
 #define RIMEADDR_CONF_SIZE              8
 
 /* EUI64 generation */
@@ -110,7 +130,7 @@
 #define NETSTACK_CONF_RADIO   contiki_maca_driver
 #define NETSTACK_CONF_FRAMER  framer_802154
 
-#define MAC_CONF_CHANNEL_CHECK_RATE      8
+#define NETSTACK_CONF_RDC_CHANNEL_CHECK_RATE      8
 #define RIME_CONF_NO_POLITE_ANNOUCEMENTS 0
 #define CXMAC_CONF_ANNOUNCEMENTS         0
 #define XMAC_CONF_ANNOUNCEMENTS          0
@@ -124,7 +144,7 @@
 #define NETSTACK_CONF_RADIO   contiki_maca_driver
 #define NETSTACK_CONF_FRAMER  framer_802154
 
-#define MAC_CONF_CHANNEL_CHECK_RATE      8
+#define NETSTACK_CONF_RDC_CHANNEL_CHECK_RATE      8
 
 #define COLLECT_CONF_ANNOUNCEMENTS       1
 #define RIME_CONF_NO_POLITE_ANNOUCEMENTS 0
@@ -212,7 +232,7 @@
 
 #define UIP_CONF_DHCP_LIGHT
 #define UIP_CONF_LLH_LEN         0
-#define UIP_CONF_RECEIVE_WINDOW  48
+#define UIP_CONF_RECEIVE_WINDOW  300
 #define UIP_CONF_TCP_MSS         48
 #define UIP_CONF_MAX_CONNECTIONS 4
 #define UIP_CONF_MAX_LISTENPORTS 8

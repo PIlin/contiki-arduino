@@ -33,7 +33,6 @@
  * \author Adam Dunkels <adam@sics.se>
  * \author Simon Barner <barner@in.tum.de>
  *
- * @(#)$Id: mtarch.c,v 1.1 2006/12/22 16:55:53 barner Exp $
  */
 
 #include <avr/io.h>
@@ -41,11 +40,6 @@
 #include <stdio.h>
 #include "sys/mt.h"
 #include "dev/rs232.h"
-
-#if defined(__AVR_ATmega328P__)
-# undef SP
-# define SP _SFR_IO16(0x3D)
-#endif
 
 /*--------------------------------------------------------------------------*/
 void
@@ -222,7 +216,7 @@ mtarch_pstart(void)
 }
 /*--------------------------------------------------------------------------*/
 void
-mtarch_stop(struct mtarch_thread *thread)
+mtarch_stop(struct mtarch_thread *t)
 {
   
 }

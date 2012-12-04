@@ -30,7 +30,7 @@
  * This file is part of libmc1322x: see http://mc1322x.devl.org
  * for details. 
  *
- * $Id: crm.h,v 1.6 2010/11/10 22:06:28 maralvira Exp $
+ *
  */
 
 #ifndef CRM_H
@@ -220,6 +220,11 @@ struct CRM_struct {
 
 static volatile struct CRM_struct * const CRM = (void *) (CRM_BASE);
 
+/* COP watchdog timer helpers */
+
+/* set the cop timout in milliseconds */
+#define cop_timeout_ms(x) (CRM->COP_CNTLbits.COP_TIMEOUT = x/87) 
+#define cop_service() (CRM->COP_SERVICE = 0xc0de5afe)
 
 /* Old register definitions, for compatibility */
 #ifndef REG_NO_COMPAT

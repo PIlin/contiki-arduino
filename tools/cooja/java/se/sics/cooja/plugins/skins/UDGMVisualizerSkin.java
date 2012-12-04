@@ -35,9 +35,6 @@ import java.awt.Color;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Point;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -52,27 +49,29 @@ import org.apache.log4j.Logger;
 import se.sics.cooja.ClassDescription;
 import se.sics.cooja.Mote;
 import se.sics.cooja.Simulation;
+import se.sics.cooja.SupportedArguments;
 import se.sics.cooja.interfaces.Position;
 import se.sics.cooja.interfaces.Radio;
 import se.sics.cooja.plugins.Visualizer;
-import se.sics.cooja.plugins.VisualizerSkin;
 import se.sics.cooja.plugins.Visualizer.SimulationMenuAction;
+import se.sics.cooja.plugins.VisualizerSkin;
 import se.sics.cooja.radiomediums.UDGM;
 
 /**
  * Visualizer skin for configuring the Unit Disk Graph radio medium (UDGM).
- * 
+ *
  * Allows a user to change the collective TX/interference ranges, and the TX/RX
  * success ratio.
- * 
+ *
  * To also see radio traffic, this skin can be combined with {@link
  * TrafficVisualizerSkin}.
- * 
+ *
  * @see TrafficVisualizerSkin
  * @see UDGM
  * @author Fredrik Osterlind
  */
 @ClassDescription("Radio environment (UDGM)")
+@SupportedArguments(radioMediums = {UDGM.class})
 public class UDGMVisualizerSkin implements VisualizerSkin {
   private static Logger logger = Logger.getLogger(UDGMVisualizerSkin.class);
 
@@ -83,28 +82,7 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
   private Visualizer visualizer = null;
   private UDGM radioMedium = null;
 
-  private Mote selectedMote = null;
-
   private Box top, ratioRX, ratioTX, rangeTX, rangeINT;
-
-  private MouseListener selectMoteMouseListener = new MouseAdapter() {
-    public void mousePressed(MouseEvent e) {
-      Mote[] motes = visualizer.findMotesAtPosition(e.getX(), e.getY());
-      if (motes == null || motes.length == 0) {
-        selectedMote = null;
-        rangeTX.setVisible(false);
-        rangeINT.setVisible(false);
-        ratioRX.setVisible(false);
-        ratioTX.setVisible(false);
-        top.setVisible(false);
-        visualizer.repaint();
-        return;
-      }
-
-      selectedMote = motes[0];
-      visualizer.repaint();
-    }
-  };
 
   public void setActive(Simulation simulation, Visualizer vis) {
     if (!(simulation.getRadioMedium() instanceof UDGM)) {
@@ -193,9 +171,6 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
       }
     });
 
-    /* Register mouse listener */
-    visualizer.getCurrentCanvas().addMouseListener(selectMoteMouseListener);
-
     /* Register menu actions */
     visualizer.registerSimulationMenuAction(RangeMenuAction.class);
     visualizer.registerSimulationMenuAction(SuccessRatioMenuAction.class);
@@ -203,7 +178,7 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
     /* UI components */
     top = Box.createVerticalBox();
     top.setBorder(BorderFactory.createCompoundBorder(
-        BorderFactory.createLineBorder(Color.BLACK), 
+        BorderFactory.createLineBorder(Color.BLACK),
         BorderFactory.createEmptyBorder(0, 3, 0, 3)));
     top.setOpaque(true);
     top.setBackground(Color.LIGHT_GRAY);
@@ -245,9 +220,6 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
       return;
     }
 
-    /* Remove mouse listener */
-    visualizer.getCurrentCanvas().removeMouseListener(selectMoteMouseListener);
-
     /* Remove spinners etc */
     visualizer.getCurrentCanvas().remove(top);
 
@@ -257,6 +229,7 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
   }
 
   public Color[] getColorOf(Mote mote) {
+    Mote selectedMote = visualizer.getSelectedMote();
     if (mote == selectedMote) {
       return new Color[] { Color.CYAN };
     }
@@ -264,7 +237,8 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
   }
 
   public void paintBeforeMotes(Graphics g) {
-    if (simulation == null 
+    Mote selectedMote = visualizer.getSelectedMote();
+    if (simulation == null
         || selectedMote == null
         || selectedMote.getInterfaces().getRadio() == null) {
       return;
@@ -289,13 +263,13 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
           / (double) selectedRadio.getOutputPowerIndicatorMax());
 
     Point translatedZero = visualizer.transformPositionToPixel(0.0, 0.0, 0.0);
-    Point translatedInterference = 
+    Point translatedInterference =
       visualizer.transformPositionToPixel(moteInterferenceRange, moteInterferenceRange, 0.0);
-    Point translatedTransmission = 
+    Point translatedTransmission =
       visualizer.transformPositionToPixel(moteTransmissionRange, moteTransmissionRange, 0.0);
-    Point translatedInterferenceMax = 
+    Point translatedInterferenceMax =
       visualizer.transformPositionToPixel(radioMedium.INTERFERENCE_RANGE, radioMedium.INTERFERENCE_RANGE, 0.0);
-    Point translatedTransmissionMax = 
+    Point translatedTransmissionMax =
       visualizer.transformPositionToPixel(radioMedium.TRANSMITTING_RANGE, radioMedium.TRANSMITTING_RANGE, 0.0);
 
     translatedInterference.x = Math.abs(translatedInterference.x - translatedZero.x);
@@ -338,7 +312,7 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
         2 * translatedTransmissionMax.x,
         2 * translatedTransmissionMax.y);
 
-    
+
     FontMetrics fm = g.getFontMetrics();
     g.setColor(Color.BLACK);
 
@@ -347,18 +321,18 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
     	if (m == selectedMote) {
     		continue;
     	}
-    	double prob = 
+    	double prob =
     		((UDGM) simulation.getRadioMedium()).getSuccessProbability(selectedRadio, m.getInterfaces().getRadio());
     	if (prob == 0.0d) {
     		continue;
     	}
-    	String msg = (double)(((int)(1000*prob))/10.0) + "%";
+    	String msg = (((int)(1000*prob))/10.0) + "%";
     	Position pos = m.getInterfaces().getPosition();
     	Point pixel = visualizer.transformPositionToPixel(pos);
     	int msgWidth = fm.stringWidth(msg);
     	g.drawString(msg, pixel.x - msgWidth/2, pixel.y + 2*Visualizer.MOTE_RADIUS + 3);
     }
-    
+
   }
 
   public void paintAfterMotes(Graphics g) {

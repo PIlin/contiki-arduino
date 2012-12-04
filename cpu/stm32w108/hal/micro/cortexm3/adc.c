@@ -117,6 +117,7 @@ ADCUser startNextConversion()
           ADC_CFG = adcConfig[i];       // set the configuration to desired
           INT_ADCFLAG = 0xFFFF;
           INT_CFGSET = INT_ADC;
+	  break;                       //see DDTS MBTst38936
         }
       }
     } else {
@@ -346,4 +347,35 @@ int16s halConvertValueToVolts(int16u value)
     V = -32768;
   }
   return V;
+}
+
+int8u halGetADCChannelFromGPIO(int32u io)
+{
+	switch(io)
+	{
+	case PORTB_PIN(5):
+		return ADC_MUX_ADC0;
+			
+	case PORTB_PIN(6):
+		return ADC_MUX_ADC1;
+		
+	case PORTB_PIN(7):
+		return ADC_MUX_ADC2;
+		
+	case PORTC_PIN(1):
+		return ADC_MUX_ADC3;
+		
+	case PORTA_PIN(4):
+		return ADC_MUX_ADC4;
+		
+	case PORTA_PIN(5):
+		return ADC_MUX_ADC5;
+		
+	case PORTB_PIN(0):
+		return ADC_MUX_VREF;
+		
+	default :
+		return 0x0F; // Invalid analogue source
+			
+	}
 }

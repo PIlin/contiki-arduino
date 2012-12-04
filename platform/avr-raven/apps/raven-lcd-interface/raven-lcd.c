@@ -28,7 +28,6 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  *
- * $Id: raven-lcd.c,v 1.11 2010/12/22 17:09:03 dak664 Exp $
 */
 
 /**
@@ -65,8 +64,12 @@
 #include "contiki.h"
 #include "contiki-lib.h"
 #include "contiki-net.h"
+
+#if AVR_WEBSERVER
 #include "webserver-nogui.h"
 #include "httpd-cgi.h"
+#endif
+
 #include "raven-lcd.h"
 
 #include <string.h>
@@ -76,17 +79,17 @@
 #include <avr/sleep.h>
 #include <dev/watchdog.h>
 
-static u8_t count = 0;
-static u8_t seqno;
+static uint8_t count = 0;
+static uint8_t seqno;
 uip_ipaddr_t dest_addr;
 
 #define MAX_CMD_LEN 20
 static struct{
-    u8_t frame[MAX_CMD_LEN];
-    u8_t ndx;
-    u8_t len;
-    u8_t cmd;
-    u8_t done;
+    uint8_t frame[MAX_CMD_LEN];
+    uint8_t ndx;
+    uint8_t len;
+    uint8_t cmd;
+    uint8_t done;
 } cmd;
 
 #define UIP_IP_BUF                ((struct uip_ip_hdr *)&uip_buf[UIP_LLH_LEN])
@@ -134,8 +137,8 @@ raven_ping6(void)
      
     
     uip_len = UIP_ICMPH_LEN + UIP_ICMP6_ECHO_REQUEST_LEN + UIP_IPH_LEN + PING6_DATALEN;
-    UIP_IP_BUF->len[0] = (u8_t)((uip_len - 40) >> 8);
-    UIP_IP_BUF->len[1] = (u8_t)((uip_len - 40) & 0x00FF);
+    UIP_IP_BUF->len[0] = (uint8_t)((uip_len - 40) >> 8);
+    UIP_IP_BUF->len[1] = (uint8_t)((uip_len - 40) & 0x00FF);
     
     UIP_ICMP_BUF->icmpchksum = 0;
     UIP_ICMP_BUF->icmpchksum = ~uip_icmp6chksum();
@@ -162,7 +165,7 @@ char serial_char_received;
 /*---------------------------------------------------------------------------*/
 /* Sleep for howlong seconds, or until UART interrupt if howlong==0.
  * Uses TIMER2 with external 32768 Hz crystal to sleep in 1 second multiples.
- * TIMER2 may have already been set up for 125 ticks/second in clock.c
+ * TIMER2 may have already been set up for CLOCK_CONF_SECOND ticks/second in clock.c
 
  *
  * Until someone figures out how to get UART to wake from powerdown,
@@ -212,8 +215,7 @@ void micro_sleep(uint8_t howlong)
        sleep_mode();                            // Sleep
 
        /* Adjust clock.c for the time spent sleeping */
-       extern void clock_adjust_seconds(uint8_t howmany);
-       clock_adjust_seconds(howlong);
+       clock_adjust_ticks(howlong * CLOCK_SECOND);
 
 //     if (TIMSK2&(1<<OCIE2A)) break;           // Exit sleep if not awakened by TIMER2
        PRINTF(".");
@@ -250,12 +252,12 @@ ISR(TIMER2_COMPA_vect)
 #endif /* !AVR_CONF_USE32KCRYSTAL */
 
 #if DEBUGSERIAL
-u8_t serialcount;
+uint8_t serialcount;
 char dbuf[30];
 #endif 
 
 /*---------------------------------------------------------------------------*/
-static u8_t
+static uint8_t
 raven_gui_loop(process_event_t ev, process_data_t data)
 {
     uint8_t i,activeconnections,radio_state;
@@ -291,6 +293,7 @@ raven_gui_loop(process_event_t ev, process_data_t data)
     } else switch (ev) {
      case SERIAL_CMD:        
         /* Check for command from serial port, execute it. */
+        /* Note cmd frame is written in an interrupt - delays here can cause overwriting by next command */
         PRINTF("\nCommand %d length %d done %d",cmd.cmd,cmd.len,cmd.done);
         if (cmd.done){
             /* Execute the waiting command */
@@ -301,12 +304,16 @@ raven_gui_loop(process_event_t ev, process_data_t data)
                 raven_ping6();
                 break;
             case SEND_TEMP:
+#if AVR_WEBSERVER
                 /* Set temperature string in web server */
                 web_set_temp((char *)cmd.frame);
+#endif
                 break;
             case SEND_ADC2:
+#if AVR_WEBSERVER
                 /* Set ext voltage string in web server */
                 web_set_voltage((char *)cmd.frame);
+#endif
                 break;
             case SEND_SLEEP:
                 /* Sleep radio and 1284p. */
@@ -315,7 +322,8 @@ raven_gui_loop(process_event_t ev, process_data_t data)
                 } else {
                 /* Sleep specified number of seconds (3290p "DOZE" mode) */
                 /* It sleeps a bit longer so we will be always be awake for the next sleep command. */
-                /* Only sleep this cycle if no active TCP/IP connections */
+#if UIP_CONF_TCP
+                /* Only sleep this cycle if no active TCP/IP connections, for fast browser responsed */
                    activeconnections=0;
                    for(i = 0; i < UIP_CONNS; ++i) {
                       if((uip_conns[i].tcpstateflags & UIP_TS_MASK) != UIP_CLOSED) activeconnections++;
@@ -324,6 +332,7 @@ raven_gui_loop(process_event_t ev, process_data_t data)
                      PRINTF("\nWaiting for %d connections",activeconnections);
                      break;
                    }
+#endif
                 }
                 radio_state = NETSTACK_RADIO.off();
                 PRINTF ("\nsleep %d radio state %d...",cmd.frame[0],radio_state);
@@ -438,16 +447,16 @@ raven_lcd_show_text(char *text) {
     send_frame(REPORT_TEXT_MSG, textlen, (uint8_t *) text);
 }
 
-#if WEBSERVER
+#if AVR_WEBSERVER
 static void
 lcd_show_servername(void) {
 
-//extern uint8_t mac_address[8];     //These are defined in httpd-fsdata.c via makefsdata.h 
-extern uint8_t server_name[16];
-//extern uint8_t domain_name[30];
-char buf[sizeof(server_name)+1];
-    eeprom_read_block (buf,server_name, sizeof(server_name));
-    buf[sizeof(server_name)]=0;
+//extern uint8_t eemem_mac_address[8];     //These are defined in httpd-fsdata.c via makefsdata.h 
+extern uint8_t eemem_server_name[16];
+//extern uint8_t eemem_domain_name[30];
+char buf[sizeof(eemem_server_name)+1];
+    eeprom_read_block (buf,eemem_server_name, sizeof(eemem_server_name));
+    buf[sizeof(eemem_server_name)]=0;
     raven_lcd_show_text(buf);  //must fit in all the buffers or it will be truncated!
 }
 #endif
@@ -458,7 +467,7 @@ PROCESS_THREAD(raven_lcd_process, ev, data)
 
   PROCESS_BEGIN();
 
-#if WEBSERVER
+#if AVR_WEBSERVER
   lcd_show_servername();
 #endif
 

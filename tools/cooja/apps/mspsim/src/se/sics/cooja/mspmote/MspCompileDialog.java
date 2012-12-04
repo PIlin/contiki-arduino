@@ -34,6 +34,10 @@ package se.sics.cooja.mspmote;
 import java.awt.Container;
 import java.io.File;
 
+import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
+
 import se.sics.cooja.GUI;
 import se.sics.cooja.MoteInterface;
 import se.sics.cooja.Simulation;
@@ -41,7 +45,7 @@ import se.sics.cooja.dialogs.AbstractCompileDialog;
 
 public class MspCompileDialog extends AbstractCompileDialog {
   private static final long serialVersionUID = -7273193946433145019L;
-  private String target;
+  private final String target;
 
   public static boolean showDialog(
       Container parent,
@@ -63,17 +67,24 @@ public class MspCompileDialog extends AbstractCompileDialog {
 
   private MspCompileDialog(Container parent, Simulation simulation, MspMoteType moteType, String target) {
     super(parent, simulation, moteType);
-    
     this.target = target;
+    setTitle("Create Mote Type: Compile Contiki for " + target);
+    addCompilationTipsTab(tabbedPane);
+  }
 
-    /* Select all mote interfaces */
-    boolean selected = true;
-    if (moteIntfBox.getComponentCount() > 0) {
-      selected = false;
-    }
-    for (Class<? extends MoteInterface> intfClass: moteType.getAllMoteInterfaceClasses()) {
-      addMoteInterface(intfClass, selected);
-    }
+  public Class<? extends MoteInterface>[] getDefaultMoteInterfaces() {
+    return ((MspMoteType)moteType).getAllMoteInterfaceClasses();
+  }
+
+  private void addCompilationTipsTab(JTabbedPane parent) {
+    JTextArea textArea = new JTextArea();
+    textArea.setEditable(false);
+    textArea.append("# Without low-power radio:\n" +
+    		"DEFINES=NETSTACK_MAC=nullmac_driver,NETSTACK_RDC=nullrdc_noframer_driver,CC2420_CONF_AUTOACK=0\n" +
+    		"# (remember to \"make clean\" after changing compilation flags)"
+    );
+
+    parent.addTab("Tips", null, new JScrollPane(textArea), "Compilation tips");
   }
 
   public boolean canLoadFirmware(File file) {
@@ -89,7 +100,7 @@ public class MspCompileDialog extends AbstractCompileDialog {
   public String getDefaultCompileCommands(File source) {
     /* TODO Split into String[] */
     return
-    GUI.getExternalToolsSetting("PATH_MAKE") + " " + 
+    GUI.getExternalToolsSetting("PATH_MAKE") + " " +
     getExpectedFirmwareFile(source).getName() + " TARGET=" + target;
   }
 
@@ -100,4 +111,10 @@ public class MspCompileDialog extends AbstractCompileDialog {
   public void writeSettingsToMoteType() {
     /* Nothing to do */
   }
+
+  protected String getTargetName() {
+  	/* Override me */
+  	return target;
+  }
+
 }

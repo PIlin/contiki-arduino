@@ -32,10 +32,8 @@
  */
 #ifndef __HWCONF_H__
 #define __HWCONF_H__
-
+#include "contiki.h"
 #include "sys/cc.h"
-
-#include <io.h>
 
 #define HWCONF_PIN(name, port, bit)                                           \
 static CC_INLINE void name##_SELECT() {P##port##SEL &= ~(1 << bit);}          \

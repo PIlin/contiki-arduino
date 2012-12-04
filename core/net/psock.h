@@ -100,7 +100,7 @@
  *
  */
 struct psock_buf {
-  u8_t *ptr;
+  uint8_t *ptr;
   unsigned short left;
 };
 
@@ -114,14 +114,14 @@ struct psock {
   struct pt pt, psockpt; /* Protothreads - one that's using the psock
 			    functions, and one that runs inside the
 			    psock functions. */
-  const u8_t *sendptr;   /* Pointer to the next data to be sent. */
-  u8_t *readptr;         /* Pointer to the next data to be read. */
+  const uint8_t *sendptr;   /* Pointer to the next data to be sent. */
+  uint8_t *readptr;         /* Pointer to the next data to be read. */
   
   uint8_t *bufptr;          /* Pointer to the buffer used for buffering
 			    incoming data. */
   
-  u16_t sendlen;         /* The number of bytes left to be sent. */
-  u16_t readlen;         /* The number of bytes left to be read. */
+  uint16_t sendlen;         /* The number of bytes left to be sent. */
+  uint16_t readlen;         /* The number of bytes left to be read. */
 
   struct psock_buf buf;  /* The structure holding the state of the
 			    input buffer. */
@@ -241,7 +241,7 @@ PT_THREAD(psock_generator_send(struct psock *psock,
  */
 #define PSOCK_CLOSE(psock) uip_close()
 
-PT_THREAD(psock_readbuf(struct psock *psock));
+PT_THREAD(psock_readbuf_len(struct psock *psock, uint16_t len));
 /**
  * Read data until the buffer is full.
  *
@@ -255,7 +255,24 @@ PT_THREAD(psock_readbuf(struct psock *psock));
  * \hideinitializer
  */
 #define PSOCK_READBUF(psock)				\
-  PT_WAIT_THREAD(&((psock)->pt), psock_readbuf(psock))
+  PT_WAIT_THREAD(&((psock)->pt), psock_readbuf_len(psock, 1))
+
+
+/**
+ * Read data until at least len bytes have been read.
+ *
+ * This macro will block waiting for data and read the data into the
+ * input buffer specified with the call to PSOCK_INIT(). Data is read
+ * until the buffer is full or len bytes have been read.
+ *
+ * \param psock (struct psock *) A pointer to the protosocket from which
+ * data should be read.
+ * \param len (uint16_t) The minimum number of bytes to read.
+ *
+ * \hideinitializer
+ */
+#define PSOCK_READBUF_LEN(psock, len)			\
+  PT_WAIT_THREAD(&((psock)->pt), psock_readbuf_len(psock, len))
 
 PT_THREAD(psock_readto(struct psock *psock, unsigned char c));
 /**
@@ -287,7 +304,7 @@ PT_THREAD(psock_readto(struct psock *psock, unsigned char c));
  */
 #define PSOCK_DATALEN(psock) psock_datalen(psock)
 
-u16_t psock_datalen(struct psock *psock);
+uint16_t psock_datalen(struct psock *psock);
 
 /**
  * Exit the protosocket's protothread.

@@ -29,21 +29,25 @@
 
 package se.sics.cooja.mspmote;
 
-import java.util.*;
+import java.util.ArrayList;
+
 import org.apache.log4j.Logger;
 
 import se.sics.cooja.AddressMemory;
+import se.sics.cooja.Mote;
 import se.sics.cooja.MoteMemory;
 import se.sics.mspsim.core.MSP430;
+import se.sics.mspsim.core.Memory.AccessMode;
+import se.sics.mspsim.core.Memory.AccessType;
 import se.sics.mspsim.util.MapEntry;
 
 public class MspMoteMemory implements MoteMemory, AddressMemory {
   private static Logger logger = Logger.getLogger(MspMoteMemory.class);
   private final ArrayList<MapEntry> mapEntries;
 
-  private MSP430 cpu;
+  private final MSP430 cpu;
 
-  public MspMoteMemory(MapEntry[] allEntries, MSP430 cpu) {
+  public MspMoteMemory(Mote mote, MapEntry[] allEntries, MSP430 cpu) {
     this.mapEntries = new ArrayList<MapEntry>();
 
     for (MapEntry entry: allEntries) {
@@ -130,13 +134,7 @@ public class MspMoteMemory implements MoteMemory, AddressMemory {
 
     int varAddr = entry.getAddress();
     byte[] varData = getMemorySegment(varAddr, 2);
-
-    int retVal = 0;
-    int pos = 0;
-    retVal += ((varData[pos++] & 0xFF)) << 8;
-    retVal += ((varData[pos++] & 0xFF)) << 0;
-
-    return Integer.reverseBytes(retVal) >> 16; // Crop two bytes
+    return parseInt(varData);
   }
 
   public void setIntValueOf(String varName, int newVal) throws UnknownVariableException {
@@ -179,7 +177,6 @@ public class MspMoteMemory implements MoteMemory, AddressMemory {
     MapEntry entry = getMapEntry(varName);
     int varAddr = entry.getAddress();
 
-    // TODO Check if small/big-endian when coming from JNI?
     return getMemorySegment(varAddr, length);
   }
 
@@ -187,8 +184,66 @@ public class MspMoteMemory implements MoteMemory, AddressMemory {
     MapEntry entry = getMapEntry(varName);
     int varAddr = entry.getAddress();
 
-    // TODO Check if small/big-endian when coming from JNI?
     setMemorySegment(varAddr, data);
   }
 
+  private ArrayList<MemoryCPUMonitor> cpuMonitorArray = new ArrayList<MemoryCPUMonitor>();
+  class MemoryCPUMonitor extends se.sics.mspsim.core.MemoryMonitor.Adapter {
+    public final MemoryMonitor mm;
+    public final int address;
+    public final int size;
+
+    public MemoryCPUMonitor(MemoryMonitor mm, int address, int size) {
+      this.mm = mm;
+      this.address = address;
+      this.size = size;
+    }
+
+    @Override
+    public void notifyReadAfter(int address, AccessMode mode, AccessType type) {
+        mm.memoryChanged(MspMoteMemory.this, MemoryEventType.READ, address);
+    }
+
+    @Override
+    public void notifyWriteAfter(int dstAddress, int data, AccessMode mode) {
+        mm.memoryChanged(MspMoteMemory.this, MemoryEventType.WRITE, dstAddress);
+    }
+  }
+
+  public boolean addMemoryMonitor(int address, int size, MemoryMonitor mm) {
+    MemoryCPUMonitor t = new MemoryCPUMonitor(mm, address, size);
+    cpuMonitorArray.add(t);
+
+    for (int a = address; a < address+size; a++) {
+      cpu.addWatchPoint(a, t);
+    }
+
+    return true;
+  }
+
+  public void removeMemoryMonitor(int address, int size, MemoryMonitor mm) {
+    for (MemoryCPUMonitor mcm: cpuMonitorArray) {
+      if (mcm.mm != mm || mcm.address != address || mcm.size != size) {
+        continue;
+      }
+      for (int a = address; a < address+size; a++) {
+        cpu.removeWatchPoint(a, mcm);
+      }
+      cpuMonitorArray.remove(mcm);
+      break;
+    }
+  }
+
+  public int parseInt(byte[] memorySegment) {
+    if (memorySegment.length < 2) {
+      return -1;
+    }
+    
+    int retVal = 0;
+    int pos = 0;
+    retVal += ((memorySegment[pos++] & 0xFF)) << 8;
+    retVal += ((memorySegment[pos++] & 0xFF)) << 0;
+
+    return Integer.reverseBytes(retVal) >> 16;
+  }
 }

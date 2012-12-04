@@ -30,264 +30,165 @@
  */
 
 package se.sics.cooja.mspmote.interfaces;
-
-import java.util.Collection;
 import java.util.Observable;
 import java.util.Observer;
-import java.util.Vector;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 
 import org.apache.log4j.Logger;
-import org.jdom.Element;
 
 import se.sics.cooja.Mote;
-import se.sics.cooja.MoteTimeEvent;
-import se.sics.cooja.Simulation;
-import se.sics.cooja.TimeEvent;
 import se.sics.cooja.interfaces.MoteID;
 import se.sics.cooja.mspmote.MspMote;
 import se.sics.cooja.mspmote.MspMoteMemory;
+import se.sics.mspsim.core.Memory;
+import se.sics.mspsim.core.MemoryMonitor;
 
 /**
- * Mote ID number.
- *
- * @see #GENERATE_ID_HEADER
- * @see #PERSISTENT_SET_ID
+ * Mote ID.
  *
  * @author Fredrik Osterlind
  */
 public class MspMoteID extends MoteID {
-  private static Logger logger = Logger.getLogger(MspMoteID.class);
+	private static Logger logger = Logger.getLogger(MspMoteID.class);
 
-  private MspMote mote;
-  private MspMoteMemory moteMem = null;
+	private MspMote mote;
+	private MspMoteMemory moteMem = null;
 
-  /**
-   * Write ID to flash at mote startup.
-   */
-  public static final boolean GENERATE_ID_HEADER = true;
+	private boolean writeFlashHeader = true;
+	private int moteID = -1;
 
+	private MemoryMonitor memoryMonitor;
+	
+	/**
+	 * Creates an interface to the mote ID at mote.
+	 *
+	 * @param mote ID
+	 * @see Mote
+	 * @see se.sics.cooja.MoteInterfaceHandler
+	 */
+	public MspMoteID(Mote m) {
+		this.mote = (MspMote) m;
+		this.moteMem = (MspMoteMemory) mote.getMemory();
+	}
 
-  /**
-   * Persistently set ID in mote memory multiple times at node startup.
-   * May be used if emulator resets memory when firmware is loaded.
-   */
-  public static final boolean PERSISTENT_SET_ID = true;
-  private int persistentSetIDCounter = 1000;
+	public int getMoteID() {
+		return moteID;
+	}
 
-  private enum ID_LOCATION {
-    VARIABLE_NODE_ID,
-    VARIABLE_TOS_NODE_ID,
-    VARIABLES_BOTH,
-    JAVA_ONLY
-  }
+	public void setMoteID(int newID) {
+		if (moteID != newID) {
+			mote.idUpdated(newID);
+			setChanged();
+		}
+		moteID = newID;
 
-  private ID_LOCATION location = ID_LOCATION.JAVA_ONLY;
+		if (moteMem.variableExists("node_id")) {
+			moteMem.setIntValueOf("node_id", moteID);
 
-  private int moteID = -1;
+			if (writeFlashHeader) {
+				/* Write to external flash */
+				SkyFlash flash = mote.getInterfaces().getInterfaceOfType(SkyFlash.class);
+				if (flash != null) {
+					flash.writeIDheader(moteID);
+				}
+				writeFlashHeader = false;
+			}
+			/* Experimental: set Contiki random seed variable if it exists */
+			if (moteMem.variableExists("rseed")) {
+				moteMem.setIntValueOf("rseed", (int) (mote.getSimulation().getRandomSeed() + newID));
+			}
+		}
+		if (moteMem.variableExists("TOS_NODE_ID")) {
+			moteMem.setIntValueOf("TOS_NODE_ID", moteID);
+		}
+		if (moteMem.variableExists("ActiveMessageAddressC__addr")) {
+			moteMem.setIntValueOf("ActiveMessageAddressC__addr", newID);
+		}
+		if (moteMem.variableExists("ActiveMessageAddressC$addr")) {
+			moteMem.setIntValueOf("ActiveMessageAddressC$addr", newID);
+		}
+		if (memoryMonitor == null) {
+		    memoryMonitor = new MemoryMonitor.Adapter() {
 
-  /**
-   * Creates an interface to the mote ID at mote.
-   *
-   * @param mote
-   *          Mote ID's mote.
-   * @see Mote
-   * @see se.sics.cooja.MoteInterfaceHandler
-   */
-  public MspMoteID(Mote m) {
-    this.mote = (MspMote) m;
-    this.moteMem = (MspMoteMemory) mote.getMemory();
+		        @Override
+		        public void notifyWriteAfter(int dstAddress, int data, Memory.AccessMode mode) {
+		            byte[] id = new byte[2];
+		            id[0] = (byte) (moteID & 0xff);
+		            id[1] = (byte) ((moteID >> 8) & 0xff);
+		            moteMem.setMemorySegment(dstAddress & ~1, id);
+		        }
 
-    if (moteMem.variableExists("node_id") &&
-        moteMem.variableExists("TOS_NODE_ID")) {
-      location = ID_LOCATION.VARIABLES_BOTH;
-    } else if (moteMem.variableExists("node_id")) {
-      location = ID_LOCATION.VARIABLE_NODE_ID;
-    } else if (moteMem.variableExists("TOS_NODE_ID")) {
-      location = ID_LOCATION.VARIABLE_TOS_NODE_ID;
-    } else {
-      location = ID_LOCATION.JAVA_ONLY;
-    }
+		    };
 
-    /*logger.debug("ID location: " + location);*/
+                    addMonitor("node_id", memoryMonitor);
+                    addMonitor("TOS_NODE_ID", memoryMonitor);
+                    addMonitor("ActiveMessageAddressC__addr", memoryMonitor);
+                    addMonitor("ActiveMessageAddressC$addr", memoryMonitor);
+		}
 
-    final TimeEvent persistentSetIDEvent = new MoteTimeEvent(mote, 0) {
-      public void execute(long t) {
+		notifyObservers();
+	}
 
-        if (persistentSetIDCounter-- > 0)
-        {
-          setMoteID(moteID);
-          /*logger.info("Setting ID: " + moteID + " at " + t);*/
+	public JPanel getInterfaceVisualizer() {
+		JPanel panel = new JPanel();
+		final JLabel idLabel = new JLabel();
 
-          if (t + mote.getInterfaces().getClock().getDrift() < 0) {
-            /* Wait until node is booting */
-            mote.getSimulation().scheduleEvent(this, -mote.getInterfaces().getClock().getDrift());
-          } else {
-            mote.getSimulation().scheduleEvent(this, t+Simulation.MILLISECOND);
-          }
+		idLabel.setText("Mote ID: " + getMoteID());
+
+		panel.add(idLabel);
+
+		Observer observer;
+		this.addObserver(observer = new Observer() {
+			public void update(Observable obs, Object obj) {
+				idLabel.setText("Mote ID: " + getMoteID());
+			}
+		});
+
+		panel.putClientProperty("intf_obs", observer);
+
+		return panel;
+	}
+
+	public void releaseInterfaceVisualizer(JPanel panel) {
+		Observer observer = (Observer) panel.getClientProperty("intf_obs");
+		if (observer == null) {
+			logger.fatal("Error when releasing panel, observer is null");
+			return;
+		}
+
+		this.deleteObserver(observer);
+	}
+
+	public void removed() {
+	  super.removed();
+	  if (memoryMonitor != null) {
+	      removeMonitor("node_id", memoryMonitor);
+	      removeMonitor("TOS_NODE_ID", memoryMonitor);
+	      removeMonitor("ActiveMessageAddressC__addr", memoryMonitor);
+	      removeMonitor("ActiveMessageAddressC$addr", memoryMonitor);
+	      memoryMonitor = null;
+	  }
+	}
+
+	private void addMonitor(String variable, MemoryMonitor monitor) {
+	    if (moteMem.variableExists(variable)) {
+	        int address = moteMem.getVariableAddress(variable);
+	        if ((address & 1) != 0) {
+	            // Variable can not be a word - must be a byte
+	        } else {
+	            mote.getCPU().addWatchPoint(address, monitor);
+	            mote.getCPU().addWatchPoint(address + 1, monitor);
+	        }
+	    }
+	}
+
+        private void removeMonitor(String variable, MemoryMonitor monitor) {
+            if (moteMem.variableExists(variable)) {
+                int address = moteMem.getVariableAddress(variable);
+                mote.getCPU().removeWatchPoint(address, monitor);
+                mote.getCPU().removeWatchPoint(address + 1, monitor);
+            }
         }
-      }
-    };
-
-    if (PERSISTENT_SET_ID) {
-      mote.getSimulation().invokeSimulationThread(new Runnable() {
-        public void run() {
-          persistentSetIDEvent.execute(MspMoteID.this.mote.getSimulation().getSimulationTime());
-        };
-      });
-    }
-  }
-
-  public int getMoteID() {
-    /*if (location == ID_LOCATION.VARIABLE_NODE_ID) {
-      return moteMem.getIntValueOf("node_id");
-    }
-
-    if (location == ID_LOCATION.VARIABLES_BOTH) {
-      return moteMem.getIntValueOf("node_id");
-    }
-
-    if (location == ID_LOCATION.VARIABLE_TOS_NODE_ID) {
-      return moteMem.getIntValueOf("TOS_NODE_ID");
-    }
-
-    if (location == ID_LOCATION.JAVA_ONLY) {
-      return moteID;
-    }*/
-
-    return moteID;
-  }
-
-  public void setMoteID(int newID) {
-    /* tell mote instance */
-    if (moteID != newID) {
-      mote.idUpdated(newID);
-    }
-    moteID = newID;
-
-    if (location == ID_LOCATION.VARIABLE_NODE_ID) {
-      if (GENERATE_ID_HEADER) {
-        /* Write to external flash */
-        SkyFlash flash = mote.getInterfaces().getInterfaceOfType(SkyFlash.class);
-        if (flash != null) {
-          flash.writeIDheader(newID);
-        }
-      }
-      moteMem.setIntValueOf("node_id", newID);
-      /* Experimental: set Contiki random seed variable if it exists */
-      if (moteMem.variableExists("rseed")) {
-        moteMem.setIntValueOf("rseed", (int) (mote.getSimulation().getRandomSeed() + newID));
-      }
-      setChanged();
-      notifyObservers();
-      return;
-    }
-
-    if (location == ID_LOCATION.VARIABLES_BOTH) {
-      if (GENERATE_ID_HEADER) {
-        /* Write to external flash */
-        SkyFlash flash = mote.getInterfaces().getInterfaceOfType(SkyFlash.class);
-        if (flash != null) {
-          flash.writeIDheader(newID);
-        }
-      }
-      moteMem.setIntValueOf("node_id", newID);
-      /* Experimental: set Contiki random seed variable if it exists */
-      if (moteMem.variableExists("rseed")) {
-        moteMem.setIntValueOf("rseed", (int) (mote.getSimulation().getRandomSeed() + newID));
-      }
-
-      if (moteMem.variableExists("TOS_NODE_ID")) {
-        moteMem.setIntValueOf("TOS_NODE_ID", newID);
-      }
-      if (moteMem.variableExists("ActiveMessageAddressC__addr")) {
-        moteMem.setIntValueOf("ActiveMessageAddressC__addr", newID);
-      }
-      if (moteMem.variableExists("ActiveMessageAddressC$addr")) {
-        moteMem.setIntValueOf("ActiveMessageAddressC$addr", newID);
-      }
-      
-      setChanged();
-      notifyObservers();
-      return;
-    }
-
-    if (location == ID_LOCATION.VARIABLE_TOS_NODE_ID) {
-      if (moteMem.variableExists("TOS_NODE_ID")) {
-        moteMem.setIntValueOf("TOS_NODE_ID", newID);
-      }
-      if (moteMem.variableExists("ActiveMessageAddressC__addr")) {
-        moteMem.setIntValueOf("ActiveMessageAddressC__addr", newID);
-      }
-      if (moteMem.variableExists("ActiveMessageAddressC$addr")) {
-        moteMem.setIntValueOf("ActiveMessageAddressC$addr", newID);
-      }
-      
-      setChanged();
-      notifyObservers();
-      return;
-    }
-
-    if (location == ID_LOCATION.JAVA_ONLY) {
-      setChanged();
-      notifyObservers();
-      return;
-    }
-
-    logger.fatal("Unknown node ID location");
-  }
-
-  public JPanel getInterfaceVisualizer() {
-    JPanel panel = new JPanel();
-    final JLabel idLabel = new JLabel();
-
-    idLabel.setText("Mote ID: " + getMoteID());
-
-    panel.add(idLabel);
-
-    Observer observer;
-    this.addObserver(observer = new Observer() {
-      public void update(Observable obs, Object obj) {
-        idLabel.setText("Mote ID: " + getMoteID());
-      }
-    });
-
-    // Saving observer reference for releaseInterfaceVisualizer
-    panel.putClientProperty("intf_obs", observer);
-
-    return panel;
-  }
-
-  public void releaseInterfaceVisualizer(JPanel panel) {
-    Observer observer = (Observer) panel.getClientProperty("intf_obs");
-    if (observer == null) {
-      logger.fatal("Error when releasing panel, observer is null");
-      return;
-    }
-
-    this.deleteObserver(observer);
-  }
-
-  public Collection<Element> getConfigXML() {
-    Vector<Element> config = new Vector<Element>();
-    Element element;
-
-    // Infinite boolean
-    element = new Element("id");
-    element.setText(Integer.toString(getMoteID()));
-    config.add(element);
-
-    return config;
-  }
-
-  public void setConfigXML(Collection<Element> configXML, boolean visAvailable) {
-    for (Element element : configXML) {
-      if (element.getName().equals("id")) {
-        setMoteID(Integer.parseInt(element.getText()));
-      }
-    }
-  }
-
 }

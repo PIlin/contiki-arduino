@@ -30,7 +30,7 @@
  * This file is part of libmc1322x: see http://mc1322x.devl.org
  * for details. 
  *
- * $Id: quahogcon.h,v 1.1 2010/06/10 14:48:32 maralvira Exp $
+ *
  */
 
 #ifndef BOARD_QUAHOG10_H
@@ -54,6 +54,10 @@
 #define BUTTON1_IN			(0x1ULL << 27)
 #define BUTTON2_OUT			(0x1ULL << 22)
 #define BUTTON2_IN			(0x1ULL << 26)
+
+#define GPIO_LED_RED   GPIO_12
+#define GPIO_LED_GREEN GPIO_21
+#define GPIO_LED_BLUE  GPIO_35
 
 #define LED_RED   12
 #define LED_GREEN 21

@@ -37,6 +37,8 @@ import java.util.Observer;
 import java.util.Random;
 import java.util.Vector;
 
+import javax.swing.JOptionPane;
+
 import org.apache.log4j.Logger;
 import org.jdom.Element;
 
@@ -56,13 +58,18 @@ public class Simulation extends Observable implements Runnable {
   public static final long MILLISECOND = 1000*MICROSECOND;
 
   /*private static long EVENT_COUNTER = 0;*/
-  
+
   private Vector<Mote> motes = new Vector<Mote>();
 
   private Vector<MoteType> moteTypes = new Vector<MoteType>();
 
-  private int delayTime=0, delayPeriod=1;
-  private long delayLastSim;
+  /* If true, run simulation at full speed */
+  private boolean speedLimitNone = true;
+  /* Limit simulation speed to maxSpeed; if maxSpeed is 1.0 simulation is run at real-time speed */
+  private double speedLimit;
+  /* Used to restrict simulation speed */
+  private long speedLimitLastSimtime;
+  private long speedLimitLastRealtime;
 
   private long currentSimulationTime = 0;
 
@@ -109,7 +116,7 @@ public class Simulation extends Observable implements Runnable {
    * Request poll from simulation thread.
    * Poll requests are prioritized over simulation events, and are
    * executed between each simulation event.
-   * 
+   *
    * @param r Simulation thread action
    */
   public void invokeSimulationThread(Runnable r) {
@@ -127,7 +134,7 @@ public class Simulation extends Observable implements Runnable {
     }
     return r;
   }
-  
+
   /**
    * Add millisecond observer.
    * This observer is notified once every simulated millisecond.
@@ -143,7 +150,7 @@ public class Simulation extends Observable implements Runnable {
       public void run() {
         if (!millisecondEvent.isScheduled()) {
           scheduleEvent(
-              millisecondEvent, 
+              millisecondEvent,
               currentSimulationTime - (currentSimulationTime % MILLISECOND) + MILLISECOND);
         }
       }
@@ -173,7 +180,7 @@ public class Simulation extends Observable implements Runnable {
    * Already scheduled events must be removed before they are rescheduled.
    *
    * If the simulation is running, this method may only be called from the simulation thread.
-   * 
+   *
    * @see #invokeSimulationThread(Runnable)
    *
    * @param e Event
@@ -189,35 +196,32 @@ public class Simulation extends Observable implements Runnable {
 
   private TimeEvent delayEvent = new TimeEvent(0) {
     public void execute(long t) {
-      /* As fast as possible: no need to reschedule delay event */
-      if (delayTime == 0) {
+      if (speedLimitNone) {
+        /* As fast as possible: no need to reschedule delay event */
         return;
       }
 
-      /* Special case: real time */
-      if (delayPeriod == Integer.MIN_VALUE) {
-        delayLastSim++;
-        long tmp = System.currentTimeMillis();
-        if (delayLastSim > tmp) {
-          try {
-            Thread.sleep(delayLastSim-tmp);
-          } catch (InterruptedException e) {
-          }
+      long diffSimtime = (getSimulationTime() - speedLimitLastSimtime)/1000; /* ms */
+      long diffRealtime = System.currentTimeMillis() - speedLimitLastRealtime; /* ms */
+      long expectedDiffRealtime = (long) (diffSimtime/speedLimit);
+      long sleep = expectedDiffRealtime - diffRealtime;
+      if (sleep >= 0) {
+        /* Slow down simulation */
+        try {
+          Thread.sleep(sleep);
+        } catch (InterruptedException e) {
         }
-
-        /* Reschedule us next millisecond */
         scheduleEvent(this, t+MILLISECOND);
-        return;
+      } else {
+        /* Reduce slow-down: execute this delay event less often */
+        scheduleEvent(this, t-sleep*MILLISECOND);
       }
 
-      /* Normal operation */
-      try {
-        Thread.sleep(delayTime);
-      } catch (InterruptedException e) {
+      /* Update counters every second */
+      if (diffRealtime > 1000) {
+        speedLimitLastRealtime = System.currentTimeMillis();
+        speedLimitLastSimtime = getSimulationTime();
       }
-
-      /* Reschedule us next period */
-      scheduleEvent(this, t+delayPeriod*MILLISECOND);
     }
     public String toString() {
       return "DELAY";
@@ -237,26 +241,32 @@ public class Simulation extends Observable implements Runnable {
       return "MILLISECOND: " + millisecondObservable.countObservers();
     }
   };
-  
+
+  public void clearEvents() {
+    eventQueue.removeAll();
+    pollRequests.clear();
+  }
+
   public void run() {
     long lastStartTime = System.currentTimeMillis();
     logger.info("Simulation main loop started, system time: " + lastStartTime);
     isRunning = true;
-    delayLastSim = System.currentTimeMillis();
+    speedLimitLastRealtime = System.currentTimeMillis();
+    speedLimitLastSimtime = getSimulationTime();
 
     /* Simulation starting */
     this.setChanged();
     this.notifyObservers(this);
 
+    TimeEvent nextEvent = null;
     try {
-      TimeEvent nextEvent;
       while (isRunning) {
 
         /* Handle all poll requests */
         while (hasPollRequests) {
           popSimulationInvokes().run();
         }
-        
+
         /* Handle one simulation event, and update simulation time */
         nextEvent = eventQueue.popFirst();
         if (nextEvent == null) {
@@ -284,7 +294,11 @@ public class Simulation extends Observable implements Runnable {
     			/* Quit simulator if in test mode */
     			System.exit(1);
     		} else {
-    			GUI.showErrorDialog(GUI.getTopParentContainer(), "Simulation error", e, false);
+    		  String title = "Simulation error";
+    		  if (nextEvent instanceof MoteTimeEvent) {
+    		    title += ": " + ((MoteTimeEvent)nextEvent).getMote();
+    		  }
+    		  GUI.showErrorDialog(GUI.getTopParentContainer(), title, e, false);
     		}
     	}
     }
@@ -294,7 +308,7 @@ public class Simulation extends Observable implements Runnable {
 
     this.setChanged();
     this.notifyObservers(this);
-    logger.info("Simulation main loop stopped, system time: " + System.currentTimeMillis() + 
+    logger.info("Simulation main loop stopped, system time: " + System.currentTimeMillis() +
         "\tDuration: " + (System.currentTimeMillis() - lastStartTime) +
                 " ms" +
                 "\tSimulated time " + getSimulationTimeMillis() +
@@ -324,9 +338,9 @@ public class Simulation extends Observable implements Runnable {
 
   /**
    * Stop simulation
-   * 
+   *
    * @param block Block until simulation has stopped, with timeout (100ms)
-   * 
+   *
    * @see #stopSimulation()
    */
   public void stopSimulation(boolean block) {
@@ -354,7 +368,7 @@ public class Simulation extends Observable implements Runnable {
   /**
    * Stop simulation (blocks).
    * Calls stopSimulation(true).
-   * 
+   *
    * @see #stopSimulation(boolean)
    */
   public void stopSimulation() {
@@ -445,7 +459,7 @@ public class Simulation extends Observable implements Runnable {
   public SimEventCentral getEventCentral() {
     return eventCentral;
   }
-  
+
   /**
    * Returns the current simulation config represented by XML elements. This
    * config also includes the current radio medium, all mote types and motes.
@@ -462,10 +476,12 @@ public class Simulation extends Observable implements Runnable {
     element.setText(title);
     config.add(element);
 
-    // Delay time
-    element = new Element("delaytime");
-    element.setText("" + getDelayTime());
-    config.add(element);
+    /* Max simulation speed */
+    if (!speedLimitNone) {
+      element = new Element("speedlimit");
+      element.setText("" + getSpeedLimit());
+      config.add(element);
+    }
 
     // Random seed
     element = new Element("randomseed");
@@ -501,7 +517,7 @@ public class Simulation extends Observable implements Runnable {
       element = new Element("motetype");
       element.setText(moteType.getClass().getName());
 
-      Collection<Element> moteTypeXML = moteType.getConfigXML();
+      Collection<Element> moteTypeXML = moteType.getConfigXML(this);
       if (moteTypeXML != null) {
         element.addContent(moteTypeXML);
       }
@@ -516,12 +532,12 @@ public class Simulation extends Observable implements Runnable {
       if (moteConfig == null) {
         moteConfig = new ArrayList<Element>();
       }
-      
+
       /* Add mote type identifier */
       Element typeIdentifier = new Element("motetype_identifier");
       typeIdentifier.setText(mote.getType().getIdentifier());
       moteConfig.add(typeIdentifier);
-      
+
       element.addContent(moteConfig);
       config.add(element);
     }
@@ -531,7 +547,7 @@ public class Simulation extends Observable implements Runnable {
 
   /**
    * Sets the current simulation config depending on the given configuration.
-   * 
+   *
    * @param configXML Simulation configuration
    * @param visAvailable True if simulation is allowed to show visualizers
    * @param manualRandomSeed Simulation random seed. May be null, in which case the configuration is used
@@ -549,15 +565,20 @@ public class Simulation extends Observable implements Runnable {
         title = element.getText();
       }
 
-      // Delay time
-      if (element.getName().equals("delaytime")) {
-        setDelayTime(Integer.parseInt(element.getText()));
+      /* Max simulation speed */
+      if (element.getName().equals("speedlimit")) {
+        String text = element.getText();
+        if (text.equals("null")) {
+          setSpeedLimit(null);
+        } else {
+          setSpeedLimit(Double.parseDouble(text));
+        }
       }
 
       // Random seed
       if (element.getName().equals("randomseed")) {
         long newSeed;
-        
+
         if (element.getText().equals("generated")) {
           randomSeedGenerated = true;
           newSeed = new Random().nextLong();
@@ -625,12 +646,31 @@ public class Simulation extends Observable implements Runnable {
       if (element.getName().equals("motetype")) {
         String moteTypeClassName = element.getText().trim();
 
+        /* Try to recreate simulation using a different mote type */
+        if (visAvailable) {
+          String[] availableMoteTypes = getGUI().getProjectConfig().getStringArrayValue("se.sics.cooja.GUI.MOTETYPES");
+          String newClass = (String) JOptionPane.showInputDialog(
+              GUI.getTopParentContainer(),
+              "The simulation is about to load '" + moteTypeClassName + "'\n" +
+              "You may try to load the simulation using a different mote type.\n",
+              "Loading mote type",
+              JOptionPane.QUESTION_MESSAGE,
+              null,
+              availableMoteTypes,
+              moteTypeClassName
+          );
+          if (newClass != null && !newClass.equals(moteTypeClassName)) {
+            logger.warn("Changing mote type class: " + moteTypeClassName + " -> " + newClass);
+            moteTypeClassName = newClass;
+          }
+        }
+
         Class<? extends MoteType> moteTypeClass = myGUI.tryLoadClass(this,
             MoteType.class, moteTypeClassName);
 
         if (moteTypeClass == null) {
           logger.fatal("Could not load mote type class: " + moteTypeClassName);
-          return false;
+          throw new MoteType.MoteTypeCreationException("Could not load mote type class: " + moteTypeClassName);
         }
 
         MoteType moteType = moteTypeClass.getConstructor((Class[]) null).newInstance();
@@ -663,7 +703,7 @@ public class Simulation extends Observable implements Runnable {
         if (moteType == null) {
           throw new Exception("No mote type specified for mote");
         }
-    
+
         /* Create mote using mote type */
         Mote mote = moteType.generateMote(this);
         if (mote.setConfigXML(this, element.getChildren(), visAvailable)) {
@@ -685,6 +725,12 @@ public class Simulation extends Observable implements Runnable {
 
     setChanged();
     notifyObservers(this);
+
+    /* Execute simulation thread events now, before simulation starts */
+    while (hasPollRequests) {
+      popSimulationInvokes().run();
+    }
+
     return true;
   }
 
@@ -701,7 +747,7 @@ public class Simulation extends Observable implements Runnable {
       public void run() {
         motes.remove(mote);
         currentRadioMedium.unregisterMote(mote, Simulation.this);
-        
+
         /* Dispose mote interface resources */
         mote.removed();
         for (MoteInterface i: mote.getInterfaces().getInterfaces()) {
@@ -732,7 +778,7 @@ public class Simulation extends Observable implements Runnable {
       /* Remove mote from simulation thread */
       invokeSimulationThread(removeMote);
     }
-    
+
     getGUI().closeMotePlugins(mote);
   }
 
@@ -745,14 +791,14 @@ public class Simulation extends Observable implements Runnable {
   	if (currentRadioMedium != null) {
   		currentRadioMedium.removed();
   	}
-  	
+
     /* Remove all motes */
     Mote[] motes = getMotes();
     for (Mote m: motes) {
       removeMote(m);
     }
   }
-  
+
   /**
    * Adds a mote to this simulation
    *
@@ -772,14 +818,20 @@ public class Simulation extends Observable implements Runnable {
             mote.getInterfaces().getClock().setDrift(-getSimulationTime());
           }
         }
-        
+
         motes.add(mote);
         currentRadioMedium.registerMote(mote, Simulation.this);
+
+        /* Notify mote interfaces that node was added */
+        for (MoteInterface i: mote.getInterfaces().getInterfaces()) {
+          i.added();
+        }
+
         setChanged();
         notifyObservers(mote);
       }
     };
-    
+
     if (!isRunning()) {
       /* Simulation is stopped, add mote immediately */
       addMote.run();
@@ -800,10 +852,10 @@ public class Simulation extends Observable implements Runnable {
   public Mote getMote(int pos) {
     return motes.get(pos);
   }
-  
+
   /**
    * Returns simulation with with given ID.
-   * 
+   *
    * @param id ID
    * @return Mote or null
    * @see Mote#getID()
@@ -878,7 +930,7 @@ public class Simulation extends Observable implements Runnable {
 
   /**
    * Remove given mote type from simulation.
-   * 
+   *
    * @param type Mote type
    */
   public void removeMoteType(MoteType type) {
@@ -886,7 +938,7 @@ public class Simulation extends Observable implements Runnable {
       logger.fatal("Mote type is not registered: " + type);
       return;
     }
-    
+
     /* Remove motes */
     for (Mote m: getMotes()) {
       if (m.getType() == type) {
@@ -900,42 +952,27 @@ public class Simulation extends Observable implements Runnable {
   }
 
   /**
-   * Set delay time (ms).
-   * The simulation loop delays given value every simulated millisecond.
-   * If the value is zero there is no delay.
-   * If the value is negative, the simulation loop delays 1ms every (-time) simulated milliseconds.
-   * 
-   * Examples:
-   * time=0: no sleeping (simulation runs as fast as possible).
-   * time=10: simulation delays 10ms every simulated millisecond.
-   * time=-5: simulation delays 1ms every 5 simulated milliseconds.
-   * 
-   * Special case:
-   * time=Integer.MIN_VALUE: simulation tries to execute at real time.
-   * 
-   * @param time New delay time value
+   * Limit simulation speed to given ratio.
+   * This method may be called from outside the simulation thread.
+   * @param newSpeedLimit
    */
-  public void setDelayTime(int time) {
-    if (time == Integer.MIN_VALUE) {
-      /* Special case: real time */
-      delayTime = Integer.MIN_VALUE;
-      delayPeriod = Integer.MIN_VALUE;
-      delayLastSim = System.currentTimeMillis();
-    } else if (time < 0) {
-      delayTime = 1;
-      delayPeriod = -time;
-    } else {
-      delayTime = time;
-      delayPeriod = 1; /* minimum */
-    }
-    
+  public void setSpeedLimit(final Double newSpeedLimit) {
     invokeSimulationThread(new Runnable() {
       public void run() {
-        if (!delayEvent.isScheduled()) {
-          scheduleEvent(
-              delayEvent, 
-              currentSimulationTime - (currentSimulationTime % MILLISECOND) + MILLISECOND);
+        if (newSpeedLimit == null) {
+          speedLimitNone = true;
+          return;
         }
+
+        speedLimitNone = false;
+        speedLimitLastRealtime = System.currentTimeMillis();
+        speedLimitLastSimtime = getSimulationTime();
+        speedLimit = newSpeedLimit.doubleValue();
+
+        if (delayEvent.isScheduled()) {
+          delayEvent.remove();
+        }
+        scheduleEvent(delayEvent, currentSimulationTime);
         Simulation.this.setChanged();
         Simulation.this.notifyObservers(this);
       }
@@ -943,23 +980,13 @@ public class Simulation extends Observable implements Runnable {
   }
 
   /**
-   * Returns current delay time value.
-   * Note that this value can be negative.
-   *
-   * @see #setDelayTime(int)
-   * @return Delay time value. May be negative, see {@link #setDelayTime(int)}
+   * @return Max simulation speed ratio. Returns null if no limit.
    */
-  public int getDelayTime() {
-    /* Special case: real time */
-    if (delayPeriod == Integer.MIN_VALUE) {
-      return Integer.MIN_VALUE;
+  public Double getSpeedLimit() {
+    if (speedLimitNone) {
+      return null;
     }
-    
-    if (delayPeriod > 1) {
-      return -delayPeriod;
-    }
-
-    return delayTime;
+    return new Double(speedLimit);
   }
 
   /**
@@ -968,7 +995,7 @@ public class Simulation extends Observable implements Runnable {
    * @param simulationTime
    *          New simulation time (ms)
    */
-  public void setSimulationTime(int simulationTime) {
+  public void setSimulationTime(long simulationTime) {
     currentSimulationTime = simulationTime;
 
     this.setChanged();
@@ -986,7 +1013,7 @@ public class Simulation extends Observable implements Runnable {
 
   /**
    * Returns current simulation time rounded to milliseconds.
-   * 
+   *
    * @see #getSimulationTime()
    * @return Time rounded to milliseconds
    */
@@ -1010,7 +1037,7 @@ public class Simulation extends Observable implements Runnable {
 
     // Change current radio medium to new one
     if (radioMedium == null) {
-      logger.fatal("Radio medium could not be created!");
+      logger.fatal("Radio medium could not be created.");
       return;
     }
     this.currentRadioMedium = radioMedium;
@@ -1040,6 +1067,18 @@ public class Simulation extends Observable implements Runnable {
   }
 
   /**
+   * Return true is simulation is runnable.
+   *
+   * @return True if simulation is runnable
+   */
+  public boolean isRunnable() {
+    if (motes.isEmpty()) {
+      return false;
+    }
+    return isRunning || hasPollRequests || eventQueue.peekFirst() != null;
+  }
+
+  /**
    * Get current simulation title (short description).
    *
    * @return Title
@@ -1057,5 +1096,4 @@ public class Simulation extends Observable implements Runnable {
   public void setTitle(String title) {
     this.title = title;
   }
-
 }

@@ -19,6 +19,7 @@ delete_buffer(void)
 {
   if (data_buffer) {
     free(data_buffer);
+    data_buffer = NULL;
     buffer_index = 0;
     buffer_size = 0;
   }
@@ -41,9 +42,11 @@ uint8_t*
 allocate_buffer(uint16_t size)
 {
   uint8_t* buffer = NULL;
+  int rem = 0;
   /*To get rid of alignment problems, always allocate even size*/
-  if (size % 2) {
-    size++;
+  rem = size % 4;
+  if (rem) {
+    size+=(4-rem);
   }
   if (buffer_index + size < buffer_size) {
     buffer = data_buffer + buffer_index;

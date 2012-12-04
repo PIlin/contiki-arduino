@@ -29,15 +29,11 @@
  * @(#)$Id: contiki-z1-main.c,v 1.4 2010/08/26 22:08:11 nifi Exp $
  */
 
-#include <signal.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdarg.h> //Enric_Joakim
-
-#include <io.h>
+#include <stdarg.h> 
 
 #include "contiki.h"
-
 #include "dev/cc2420.h"
 #include "dev/leds.h"
 #include "dev/serial-line.h"
@@ -49,6 +45,8 @@
 #include "net/netstack.h"
 #include "net/mac/frame802154.h"
 #include "dev/button-sensor.h"
+#include "dev/adxl345.h"
+#include "sys/clock.h"
 
 #if WITH_UIP6
 #include "net/uip-ds6.h"
@@ -68,6 +66,7 @@
 #include "dev/sht11-sensor.h"
 
 SENSORS(&button_sensor);
+
 
 #if DCOSYNCH_CONF_ENABLED
 static struct timer mgt_timer;
@@ -105,6 +104,8 @@ static uint8_t is_gateway;
 #else
 #define PRINTF(...)
 #endif
+
+void init_platform(void);
 
 /*---------------------------------------------------------------------------*/
 #if 0
@@ -208,20 +209,6 @@ main(int argc, char **argv)
   slip_arch_init(BAUD2UBR(115200));
 #endif /* WITH_UIP */
 
-  /* XXX hack: Fix it so that the 802.15.4 MAC address is compatible
-     with an Ethernet MAC address - byte 0 (byte 2 in the DS ID)
-     cannot be odd. */
-  //Enric node_mac[2] &= 0xfe;
-  node_mac[0] = 0x00;
-  node_mac[1] = 0x12;
-  node_mac[2] = 0x76;
-  node_mac[3] = 0x01;
-  node_mac[4] = 0x02;
-  node_mac[5] = 0x03;
-  node_mac[2] = 0x04;
-  node_mac[7] = 0x05;
-
-  
   xmem_init();
 
   rtimer_init();
@@ -229,35 +216,65 @@ main(int argc, char **argv)
    * Hardware initialization done!
    */
 
-  
   /* Restore node id if such has been stored in external mem */
   node_id_restore();
 
+  /* If no MAC address was burned, we use the node ID. */
+  if(!(node_mac[0] | node_mac[1] | node_mac[2] | node_mac[3] |
+       node_mac[4] | node_mac[5] | node_mac[6] | node_mac[7])) {
+    node_mac[0] = 0xc1;  /* Hardcoded for Z1 */
+    node_mac[1] = 0x0c;  /* Hardcoded for Revision C */
+    node_mac[2] = 0x00;  /* Hardcoded to arbitrary even number so that
+                            the 802.15.4 MAC address is compatible with
+                            an Ethernet MAC address - byte 0 (byte 2 in
+                            the DS ID) */
+    node_mac[3] = 0x00;  /* Hardcoded */
+    node_mac[4] = 0x00;  /* Hardcoded */
+    node_mac[5] = 0x00;  /* Hardcoded */
+    node_mac[6] = node_id >> 8;
+    node_mac[7] = node_id & 0xff;
+  }
 
-  /* for setting "hardcoded" IEEE 802.15.4 MAC addresses */
+  /* Overwrite node MAC if desired at compile time */
+#ifdef MACID
+  #warning "***** CHANGING DEFAULT MAC *****"
+  node_mac[0] = 0xc1;  /* Hardcoded for Z1 */
+  node_mac[1] = 0x0c;  /* Hardcoded for Revision C */
+  node_mac[2] = 0x00;  /* Hardcoded to arbitrary even number so that
+                          the 802.15.4 MAC address is compatible with
+                          an Ethernet MAC address - byte 0 (byte 2 in
+                          the DS ID) */
+  node_mac[3] = 0x00;  /* Hardcoded */
+  node_mac[4] = 0x00;  /* Hardcoded */
+  node_mac[5] = 0x00;  /* Hardcoded */
+  node_mac[6] = MACID >> 8;
+  node_mac[7] = MACID & 0xff;
+#endif
+
 #ifdef IEEE_802154_MAC_ADDRESS
+  /* for setting "hardcoded" IEEE 802.15.4 MAC addresses */
   {
     uint8_t ieee[] = IEEE_802154_MAC_ADDRESS;
     memcpy(node_mac, ieee, sizeof(uip_lladdr.addr));
     node_mac[7] = node_id & 0xff;
   }
-#endif
+#endif /* IEEE_802154_MAC_ADDRESS */
 
-  //Enric random_init(node_mac[0] + node_id);
-  
    /*
    * Initialize Contiki and our processes.
    */
   process_init();
   process_start(&etimer_process, NULL);
 
-  process_start(&sensors_process, NULL);
-
   ctimer_init();
+
+  init_platform(); 
 
   set_rime_addr();
 
   cc2420_init();
+  accm_init();
+
   {
     uint8_t longaddr[8];
     uint16_t shortaddr;
@@ -284,12 +301,8 @@ main(int argc, char **argv)
     PRINTF("Node id is not set.\n");
   }
 
-  //Enric printf("MAC %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x",
-	 //Enric node_mac[0], node_mac[1], node_mac[2], node_mac[3],
-	 //Enric node_mac[4], node_mac[5], node_mac[6], node_mac[7]);
 
 #if WITH_UIP6
-  PRINTF("in WITH_UIP6\n"); //Enric
   memcpy(&uip_lladdr.addr, node_mac, sizeof(uip_lladdr.addr));
   /* Setup nullmac-like MAC for 802.15.4 */
 /*   sicslowpan_init(sicslowmac_init(&cc2420_driver)); */

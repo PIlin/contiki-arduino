@@ -31,7 +31,7 @@
  * $Id: httpd-cgi.c,v 1.13 2010/12/23 19:41:07 dak664 Exp $
  *
  */
-
+/* Line endings in git repository are LF instead of CR-LF ? */
 /*
  * This file includes functions that are called by the web server
  * scripts. The functions takes no argument, and the return value is
@@ -122,12 +122,14 @@ void
 web_set_temp(char *s)
 {
   strcpy(sensor_temperature, s);
+//  printf_P(PSTR("got temp"));
   last_tempupdate=seconds;
 }
 void
 web_set_voltage(char *s)
 {
   strcpy(sensor_extvoltage, s);
+//    printf_P(PSTR("got volts"));
   last_extvoltageupdate=seconds;
 }
 
@@ -164,7 +166,7 @@ generate_file_stats(void *arg)
   static const char httpd_cgi_filestat3[] HTTPD_STRING_ATTR = "%5u";
   char tmp[20];
   struct httpd_fsdata_file_noconst *f,fram;
-  u16_t i;
+  uint16_t i;
   unsigned short numprinted;
 
   /* Transfer arg from whichever flash that contains the html file to RAM */
@@ -267,7 +269,7 @@ make_processes(void *p)
   static const char httpd_cgi_proc[] HTTPD_STRING_ATTR = "<tr align=\"center\"><td>%p</td><td>%s</td><td>%p</td><td>%s</td></tr>\r\n";
   char name[40],tstate[20];
 
-  strncpy(name, ((struct process *)p)->name, 40);
+  strncpy(name, PROCESS_NAME_STRING((struct process *)p), 40);
   petsciiconv_toascii(name, 40);
   httpd_strcpy(tstate,states[9 + ((struct process *)p)->state]);
   return httpd_snprintf((char *)uip_appdata, uip_mss(), httpd_cgi_proc, p, name,
