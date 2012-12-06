@@ -41,15 +41,17 @@ AVR_MCU_CLOCK	= 16
 AVR_MCU_SPEED	= 16000000UL
 MCU		= atmega328p
 USART_PORT	= 0
+AVRDUDE_BAUD = 57600
+AVRDUDE_PORT		= /dev/ttyUSB0
 
 else ifeq ($(ARDUINO_MODEL), Uno) # ATmega328p @ 16MHz (5V)
-# http://arduino.cc/en/Main/ArduinoBoardDuemilanove
+# http://arduino.cc/en/Main/ArduinoBoardUno
 AVR_MCU_CLOCK	= 16
 AVR_MCU_SPEED	= 16000000UL
 MCU		= atmega328p 
-#MCU 	= m328p
 USART_PORT	= 0
 AVRDUDE_BAUD = 115200
+AVRDUDE_PORT		= /dev/ttyACM00
 
 else
 $(error Please define Arduino board model in Makefile.arduino)
@@ -66,7 +68,7 @@ AVRDUDE_OPTIONS		= -v -b $(AVRDUDE_BAUD)
 #AVRDUDE_PROGRAMMER	= dapa
 AVRDUDE_PROGRAMMER 	= arduino
 
-AVRDUDE_PORT		= /dev/ttyACM0
+AVRDUDE_PORT		?= /dev/ttyACM0
 
 CONTIKI_PLAT_DEFS	= -DF_CPU=$(AVR_MCU_SPEED) \
 			  -DMCU_MHZ=$(AVR_MCU_CLOCK) \
