@@ -56,8 +56,11 @@
 #endif
 
 /* Clock ticks per second */
-#define CLOCK_CONF_SECOND 125
-
+#if defined (__AVR_ATmega328P__) // for Uno and Duemilanove-238
+# define CLOCK_CONF_SECOND 256
+#else
+# define CLOCK_CONF_SECOND 128
+#endif
 
 /* LED ports */
 #define LEDS_PxDIR DDRA /**< port direction register */
