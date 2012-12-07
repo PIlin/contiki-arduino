@@ -96,3 +96,9 @@ include $(CONTIKIAVR)/Makefile.avr
 ##
 ### Source for IEEE 802.15.4 manager interface
 ##include $(CONTIKI)/cpu/avr/radio/ieee-manager/Makefile.ieee-manager
+
+
+
+savearduinotarget: savetarget
+	@echo "saving model to Makefile.target"
+	@echo >>Makefile.target "ARDUINO_MODEL = $(ARDUINO_MODEL)"
