@@ -1,9 +1,10 @@
-CONTIKI_TARGET_DIRS	= . apps net loader
+CONTIKI_TARGET_DIRS	= . apps net loader arduino arduino/variants/standard
 CONTIKI_CORE		= contiki-arduino-main
 CONTIKI_TARGET_MAIN	= ${CONTIKI_CORE}.o
 
 CONTIKI_TARGET_SOURCEFILES +=	rs232.c cfs-eeprom.c eeprom.c random.c \
-				mmem.c contiki-arduino-main.c slip.c
+				mmem.c contiki-arduino-main.c slip.c \
+				wiring_digital.c
 
 CONTIKIAVR	= $(CONTIKI)/cpu/avr
 CONTIKIBOARD	= .
