@@ -87,8 +87,8 @@ rtimer_arch_schedule(rtimer_clock_t t)
   /* Switch to capture mode before writing T1CC1x and
    * set the compare mode values so we can get an interrupt after t */
   RT_MODE_CAPTURE();
-  T1CC1L = (unsigned char) t;
-  T1CC1H = (unsigned char) (t >> 8);
+  T1CC1L = (unsigned char)t;
+  T1CC1H = (unsigned char)(t >> 8);
   RT_MODE_COMPARE();
 
   /* Turn on compare mode interrupt */
@@ -96,6 +96,11 @@ rtimer_arch_schedule(rtimer_clock_t t)
   T1CCTL1 |= T1CCTL_IM;
 }
 /*---------------------------------------------------------------------------*/
+/* avoid referencing bits, we don't call code which use them */
+#pragma save
+#if CC_CONF_OPTIMIZE_STACK_SIZE
+#pragma exclude bits
+#endif
 void
 rtimer_isr(void) __interrupt(T1_VECTOR)
 {
@@ -111,3 +116,4 @@ rtimer_isr(void) __interrupt(T1_VECTOR)
   ENERGEST_OFF(ENERGEST_TYPE_IRQ);
   T1IE = 1; /* Acknowledge Timer 1 Interrupts */
 }
+#pragma restore

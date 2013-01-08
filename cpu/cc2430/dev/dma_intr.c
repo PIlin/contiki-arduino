@@ -16,7 +16,7 @@
 #include "cc2430_sfr.h"
 
 #if DMA_ON
-extern struct process * dma_callback[DMA_CHANNEL_COUNT];
+extern struct process *dma_callback[DMA_CHANNEL_COUNT];
 #endif
 
 /*---------------------------------------------------------------------------*/
@@ -32,18 +32,22 @@ extern void spi_rx_dma_callback(void);
  *
  * if callback defined a poll is made to that process
  */
+#pragma save
+#if CC_CONF_OPTIMIZE_STACK_SIZE
+#pragma exclude bits
+#endif
 void
-dma_ISR(void) __interrupt (DMA_VECTOR)
+dma_ISR(void) __interrupt(DMA_VECTOR)
 {
 #if DMA_ON
   uint8_t i;
 #endif
-  EA=0;
+  EA = 0;
   IRCON_DMAIF = 0;
 #ifdef HAVE_RF_DMA
   if((DMAIRQ & 1) != 0) {
     DMAIRQ &= ~1;
-    DMAARM=0x81;
+    DMAARM = 0x81;
     rf_dma_callback_isr();
   }
 #endif
@@ -65,4 +69,5 @@ dma_ISR(void) __interrupt (DMA_VECTOR)
 #endif
   EA = 1;
 }
+#pragma restore
 /*---------------------------------------------------------------------------*/

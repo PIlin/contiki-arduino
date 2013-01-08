@@ -42,7 +42,7 @@
 #if BUTTON_SENSOR_ON
 static uint8_t p0ien;
 static uint8_t p2ien;
-static __data struct timer debouncetimer[2];
+static CC_AT_DATA struct timer debouncetimer[2];
 
 #ifdef MODEL_N740
 HWCONF_PIN(BUTTON_1, 1, 0)
@@ -59,25 +59,25 @@ HWCONF_PORT_0_IRQ(BUTTON_2, 7)
 #endif /* MODEL_N711 */
 
 /*---------------------------------------------------------------------------*/
-static
-int value_b1(int type)
+static int
+value_b1(int type)
 {
   return BUTTON_1_READ() || !timer_expired(&debouncetimer[0]);
 }
 /*---------------------------------------------------------------------------*/
-static
-int status_b1(int type)
+static int
+status_b1(int type)
 {
-  switch (type) {
+  switch(type) {
   case SENSORS_ACTIVE:
   case SENSORS_READY:
     return BUTTON_1_IRQ_ENABLED();
-    }
+  }
   return 0;
 }
 /*---------------------------------------------------------------------------*/
-static
-int configure_b1(int type, int value)
+static int
+configure_b1(int type, int value)
 {
   switch(type) {
   case SENSORS_HW_INIT:
@@ -92,7 +92,7 @@ int configure_b1(int type, int value)
         timer_set(&debouncetimer[0], 0);
         BUTTON_1_IRQ_FLAG_OFF();
         BUTTON_1_ENABLE_IRQ();
-}
+      }
     } else {
       BUTTON_1_DISABLE_IRQ();
     }
@@ -101,16 +101,16 @@ int configure_b1(int type, int value)
   return 0;
 }
 /*---------------------------------------------------------------------------*/
-static
-int value_b2(int type)
+static int
+value_b2(int type)
 {
   return BUTTON_2_READ() || !timer_expired(&debouncetimer[1]);
 }
 /*---------------------------------------------------------------------------*/
-static
-int status_b2(int type)
+static int
+status_b2(int type)
 {
-  switch (type) {
+  switch(type) {
   case SENSORS_ACTIVE:
   case SENSORS_READY:
     return BUTTON_2_IRQ_ENABLED();
@@ -118,8 +118,8 @@ int status_b2(int type)
   return 0;
 }
 /*---------------------------------------------------------------------------*/
-static
-int configure_b2(int type, int value)
+static int
+configure_b2(int type, int value)
 {
   switch(type) {
   case SENSORS_HW_INIT:
@@ -143,6 +143,10 @@ int configure_b2(int type, int value)
   return 0;
 }
 /*---------------------------------------------------------------------------*/
+#pragma save
+#if CC_CONF_OPTIMIZE_STACK_SIZE
+#pragma exclude bits
+#endif
 void
 port_0_ISR(void) __interrupt (P0INT_VECTOR)
 {
@@ -194,6 +198,7 @@ port_1_ISR(void) __interrupt (P1INT_VECTOR)
   EA = 1;
 }
 #endif /* MODEL_N740 */
+#pragma restore
 
 SENSORS_SENSOR(button_1_sensor, BUTTON_1_SENSOR, value_b1, configure_b1, status_b1);
 SENSORS_SENSOR(button_2_sensor, BUTTON_2_SENSOR, value_b2, configure_b2, status_b2);

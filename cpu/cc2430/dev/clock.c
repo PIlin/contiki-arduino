@@ -46,14 +46,13 @@
 #define TICK_VAL (32768/128)  /* 256 */
 /*---------------------------------------------------------------------------*/
 #if CLOCK_CONF_STACK_FRIENDLY
-volatile __bit sleep_flag;
-#else
+volatile uint8_t sleep_flag;
 #endif
 /*---------------------------------------------------------------------------*/
 /* Used in sleep timer interrupt for calculating the next interrupt time */
 static unsigned long timer_value;
-static volatile __data clock_time_t count = 0; /* Uptime in ticks */
-static volatile __data clock_time_t seconds = 0; /* Uptime in secs */
+static volatile CC_AT_DATA clock_time_t count = 0; /* Uptime in ticks */
+static volatile CC_AT_DATA clock_time_t seconds = 0; /* Uptime in secs */
 /*---------------------------------------------------------------------------*/
 /**
  * Each iteration is ~1.0xy usec, so this function delays for roughly len usec
@@ -99,17 +98,21 @@ clock_init(void)
   CLKCON = OSC32K | TICKSPD2 | TICKSPD1; /* tickspeed 500 kHz for timers[1-4] */
 
   /* Initialize tick value */
-  timer_value = ST0;                              /* ST low bits [7:0] */
-  timer_value += ((unsigned long int) ST1) << 8;  /* middle bits [15:8] */
-  timer_value += ((unsigned long int) ST2) << 16; /*   high bits [23:16] */
-  timer_value += TICK_VAL;                        /* Init value 256 */
-  ST2 = (unsigned char) (timer_value >> 16);
-  ST1 = (unsigned char) (timer_value >> 8);
-  ST0 = (unsigned char) timer_value;
-  
+  timer_value = ST0;                             /* ST low bits [7:0] */
+  timer_value += ((unsigned long int)ST1) << 8;  /* middle bits [15:8] */
+  timer_value += ((unsigned long int)ST2) << 16; /*   high bits [23:16] */
+  timer_value += TICK_VAL;                       /* Init value 256 */
+  ST2 = (unsigned char)(timer_value >> 16);
+  ST1 = (unsigned char)(timer_value >> 8);
+  ST0 = (unsigned char)timer_value;
+
   IEN0_STIE = 1; /* IEN0.STIE acknowledge Sleep Timer Interrupt */
 }
 /*---------------------------------------------------------------------------*/
+#pragma save
+#if CC_CONF_OPTIMIZE_STACK_SIZE
+#pragma exclude bits
+#endif
 void
 clock_ISR(void) __interrupt(ST_VECTOR)
 {
@@ -128,15 +131,15 @@ clock_ISR(void) __interrupt(ST_VECTOR)
    * Next interrupt occurs after the current time + TICK_VAL
    */
   timer_value = ST0;
-  timer_value += ((unsigned long int) ST1) << 8;
-  timer_value += ((unsigned long int) ST2) << 16;
+  timer_value += ((unsigned long int)ST1) << 8;
+  timer_value += ((unsigned long int)ST2) << 16;
   timer_value += TICK_VAL;
-  ST2 = (unsigned char) (timer_value >> 16);
-  ST1 = (unsigned char) (timer_value >> 8);
-  ST0 = (unsigned char) timer_value;
-  
+  ST2 = (unsigned char)(timer_value >> 16);
+  ST1 = (unsigned char)(timer_value >> 8);
+  ST0 = (unsigned char)timer_value;
+
   ++count;
-  
+
   /* Make sure the CLOCK_CONF_SECOND is a power of two, to ensure
      that the modulo operation below becomes a logical and and not
      an expensive divide. Algorithm from Wikipedia:
@@ -157,9 +160,10 @@ clock_ISR(void) __interrupt(ST_VECTOR)
     etimer_request_poll();
   }
 #endif
-  
+
   IRCON_STIF = 0;
   ENERGEST_OFF(ENERGEST_TYPE_IRQ);
   ENABLE_INTERRUPTS();
 }
+#pragma restore
 /*---------------------------------------------------------------------------*/

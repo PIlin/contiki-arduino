@@ -56,8 +56,12 @@ PROCESS_NAME(cc2430_rf_process);
  * RF interrupt service routine.
  *
  */
+#pragma save
+#if CC_CONF_OPTIMIZE_STACK_SIZE
+#pragma exclude bits
+#endif
 void
-cc2430_rf_ISR( void ) __interrupt (RF_VECTOR)
+cc2430_rf_ISR(void) __interrupt(RF_VECTOR)
 {
   EA = 0;
   ENERGEST_ON(ENERGEST_TYPE_IRQ);
@@ -66,15 +70,16 @@ cc2430_rf_ISR( void ) __interrupt (RF_VECTOR)
    * Just double check the flag.
    */
   if(RFIF & IRQ_FIFOP) {
-      RF_RX_LED_ON();
-      /* Poll the RF process which calls cc2430_rf_read() */
-      process_poll(&cc2430_rf_process);
+    RF_RX_LED_ON();
+    /* Poll the RF process which calls cc2430_rf_read() */
+    process_poll(&cc2430_rf_process);
   }
   S1CON &= ~(RFIF_0 | RFIF_1);
 
   ENERGEST_OFF(ENERGEST_TYPE_IRQ);
   EA = 1;
 }
+#pragma restore
 #endif
 /*---------------------------------------------------------------------------*/
 #if CC2430_RFERR_INTERRUPT
@@ -82,8 +87,12 @@ cc2430_rf_ISR( void ) __interrupt (RF_VECTOR)
  * RF error interrupt service routine.
  * Turned off by default, can be turned on in contiki-conf.h
  */
+#pragma save
+#if CC_CONF_OPTIMIZE_STACK_SIZE
+#pragma exclude bits
+#endif
 void
-cc2430_rf_error_ISR( void ) __interrupt (RFERR_VECTOR)
+cc2430_rf_error_ISR(void) __interrupt(RFERR_VECTOR)
 {
   EA = 0;
   TCON_RFERRIF = 0;
@@ -98,5 +107,6 @@ cc2430_rf_error_ISR( void ) __interrupt (RFERR_VECTOR)
   RF_TX_LED_OFF();
   EA = 1;
 }
+#pragma restore
 #endif
 /*---------------------------------------------------------------------------*/

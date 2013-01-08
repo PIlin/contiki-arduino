@@ -28,7 +28,6 @@
  *
  * This file is part of the Contiki operating system.
  *
- * $Id: hello-world.c,v 1.1 2006/10/02 21:46:46 simonduq Exp $
  */
 
 /**
@@ -42,7 +41,7 @@
 #include "contiki-net.h"
 #include "uip.h"
 #include "net/rpl/rpl.h"
-#include "node-id.h"
+#include "sys/node-id.h"
 #include "servreg-hack.h"
 
 #include "cfs/cfs.h"
@@ -101,8 +100,8 @@ create_rpl_dag(uip_ipaddr_t *ipaddr)
     rpl_dag_t *dag;
     uip_ipaddr_t prefix;
 
-    rpl_set_root(ipaddr);
-    dag = rpl_get_dag(RPL_ANY_INSTANCE);
+    rpl_set_root(RPL_DEFAULT_INSTANCE, ipaddr);
+    dag = rpl_get_any_dag();
     uip_ip6addr(&prefix, 0xaaaa, 0, 0, 0, 0, 0, 0, 0);
     rpl_set_prefix(dag, &prefix, 64);
     printf("created a new RPL dag\n");

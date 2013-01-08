@@ -16,6 +16,7 @@
 #include "net/netstack.h"
 #include "net/mac/frame802154.h"
 #include "debug.h"
+#include "stack.h"
 #include "dev/watchdog-cc2430.h"
 #include "dev/sensinode-sensors.h"
 #include "disco.h"
@@ -33,7 +34,7 @@ PROCESS_NAME(batmon_process);
 #endif
 
 #if NETSTACK_CONF_SHORTCUTS
-static __data int len;
+static CC_AT_DATA uint16_t len;
 #endif
 
 #ifdef STARTUP_CONF_VERBOSE
@@ -55,11 +56,10 @@ static __data int len;
 #endif
 
 #if CLOCK_CONF_STACK_FRIENDLY
-extern volatile __bit sleep_flag;
+extern volatile uint8_t sleep_flag;
 #endif
 
 extern rimeaddr_t rimeaddr_node_addr;
-static __data int r;
 #if ENERGEST_CONF_ON
 static unsigned long irq_energest = 0;
 #define ENERGEST_IRQ_SAVE(a) do { \
@@ -77,7 +77,7 @@ fade(int l) CC_NON_BANKED
   volatile int i, a;
   int k, j;
   for(k = 0; k < 400; ++k) {
-    j = k > 200? 400 - k: k;
+    j = k > 200 ? 400 - k : k;
 
     leds_on(l);
     for(i = 0; i < j; ++i) {
@@ -96,7 +96,7 @@ set_rime_addr(void) CC_NON_BANKED
   uint8_t *addr_long = NULL;
   uint16_t addr_short = 0;
   char i;
-  __code unsigned char * macp;
+  __code unsigned char *macp;
 
   PUTSTRING("Rime is 0x");
   PUTHEX(sizeof(rimeaddr_t));
@@ -119,7 +119,7 @@ set_rime_addr(void) CC_NON_BANKED
     FMAP = 3;
 
     /* Set our pointer to the correct address and fetch 8 bytes of MAC */
-    macp = (__code unsigned char *) 0xFFF8;
+    macp = (__code unsigned char *)0xFFF8;
 
     for(i = (RIMEADDR_SIZE - 1); i >= 0; --i) {
       rimeaddr_node_addr.u8[i] = *macp;
@@ -164,6 +164,8 @@ main(void)
   /* Hardware initialization */
   bus_init();
   rtimer_init();
+
+  stack_poison();
 
   /* model-specific h/w init. */
   model_init();
@@ -287,6 +289,7 @@ main(void)
   watchdog_start();
 
   while(1) {
+    uint8_t r;
     do {
       /* Reset watchdog and handle polls and events */
       watchdog_periodic();
@@ -340,7 +343,7 @@ main(void)
       nop
     __endasm;
 
-    if (SLEEP & SLEEP_MODE0) {
+    if(SLEEP & SLEEP_MODE0) {
 #endif /* LPM_MODE==LPM_MODE_PM2 */
 
       ENERGEST_OFF(ENERGEST_TYPE_CPU);
