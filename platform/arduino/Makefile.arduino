@@ -1,4 +1,4 @@
-CONTIKI_TARGET_DIRS	= . arduino arduino/variants/standard dev
+CONTIKI_TARGET_DIRS	= . arduino dev
 CONTIKI_CORE		= contiki-arduino-main
 CONTIKI_TARGET_MAIN	= ${CONTIKI_CORE}.o
 
@@ -21,6 +21,7 @@ ifeq ($(ARDUINO_MODEL), Diecimila) # ATmega168 @ 16MHz
 AVR_MCU_CLOCK	= 16
 AVR_MCU_SPEED	= 16000000UL
 MCU		= atmega168
+CONTIKI_TARGET_DIRS += arduino/variants/standard
 USART_PORT	= 0
 
 else ifeq ($(ARDUINO_MODEL), ProMini8MHz) # ATmega168 @ 8MHz (3.3V)
@@ -28,6 +29,7 @@ else ifeq ($(ARDUINO_MODEL), ProMini8MHz) # ATmega168 @ 8MHz (3.3V)
 AVR_MCU_CLOCK	= 8
 AVR_MCU_SPEED	= 8000000UL
 MCU		= atmega168
+CONTIKI_TARGET_DIRS += arduino/variants/standard
 USART_PORT	= 0
 
 else ifeq ($(ARDUINO_MODEL), ProMini16MHz) # ATmega168 @ 16MHz (5V)
@@ -35,6 +37,7 @@ else ifeq ($(ARDUINO_MODEL), ProMini16MHz) # ATmega168 @ 16MHz (5V)
 AVR_MCU_CLOCK	= 16
 AVR_MCU_SPEED	= 16000000UL
 MCU		= atmega168
+CONTIKI_TARGET_DIRS += arduino/variants/standard
 USART_PORT	= 0
 
 else ifeq ($(ARDUINO_MODEL), Duemilanove-328) # ATmega328p @ 16MHz (5V)
@@ -42,6 +45,7 @@ else ifeq ($(ARDUINO_MODEL), Duemilanove-328) # ATmega328p @ 16MHz (5V)
 AVR_MCU_CLOCK	= 16
 AVR_MCU_SPEED	= 16000000UL
 MCU		= atmega328p
+CONTIKI_TARGET_DIRS += arduino/variants/standard
 USART_PORT	= 0
 AVRDUDE_BAUD = 57600
 AVRDUDE_PORT		= /dev/ttyUSB0
@@ -50,7 +54,18 @@ else ifeq ($(ARDUINO_MODEL), Uno) # ATmega328p @ 16MHz (5V)
 # http://arduino.cc/en/Main/ArduinoBoardUno
 AVR_MCU_CLOCK	= 16
 AVR_MCU_SPEED	= 16000000UL
-MCU		= atmega328p 
+MCU		= atmega328p
+CONTIKI_TARGET_DIRS += arduino/variants/standard
+USART_PORT	= 0
+AVRDUDE_BAUD = 115200
+AVRDUDE_PORT		= /dev/ttyACM00
+
+else ifeq ($(ARDUINO_MODEL), Leo) # ATmega328p @ 16MHz (5V)
+# http://arduino.cc/en/Main/ArduinoBoardUno
+AVR_MCU_CLOCK	= 16
+AVR_MCU_SPEED	= 16000000UL
+MCU		= atmega32u4
+CONTIKI_TARGET_DIRS += arduino/variants/leonardo
 USART_PORT	= 0
 AVRDUDE_BAUD = 115200
 AVRDUDE_PORT		= /dev/ttyACM00
