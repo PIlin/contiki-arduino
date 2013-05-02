@@ -57,6 +57,7 @@
 
 #include "net/neighbor-info.h"
 
+#if UIP_CONF_IPV6
 /*---------------------------------------------------------------------------*/
 extern rpl_of_t RPL_OF;
 static rpl_of_t * const objective_functions[] = {&RPL_OF};
@@ -505,7 +506,7 @@ rpl_add_parent(rpl_dag_t *dag, rpl_dio_t *dio, uip_ipaddr_t *addr)
   p->dag = dag;
   p->rank = dio->rank;
   p->dtsn = dio->dtsn;
-  p->link_metric = INITIAL_LINK_METRIC;
+  p->link_metric = RPL_INIT_LINK_METRIC;
   memcpy(&p->mc, &dio->mc, sizeof(p->mc));
   list_add(dag->parents, p);
   return p;
@@ -1223,7 +1224,11 @@ rpl_process_dio(uip_ipaddr_t *from, rpl_dio_t *dio)
       RPL_LOLLIPOP_INCREMENT(instance->dtsn_out);
       rpl_schedule_dao(instance);
     }
+    /* We received a new DIO from our preferred parent.
+     * Call uip_ds6_defrt_add to set a fresh value for the lifetime counter */
+    uip_ds6_defrt_add(from, RPL_LIFETIME(instance, instance->default_lifetime));
   }
   p->dtsn = dio->dtsn;
 }
 /*---------------------------------------------------------------------------*/
+#endif /* UIP_CONF_IPV6 */
